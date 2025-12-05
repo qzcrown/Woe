@@ -19,6 +19,19 @@ export class ApplicationHandlers {
     };
   }
 
+  // 更新应用的最后使用时间（带频率限制）
+  async updateLastUsed(applicationId: number): Promise<void> {
+    try {
+      await this.db.prepare(`
+        UPDATE applications
+        SET last_used = CURRENT_TIMESTAMP
+        WHERE id = ? AND (last_used IS NULL OR last_used < datetime('now', '-1 minute'))
+      `).bind(applicationId).run();
+    } catch (error) {
+      console.error("Failed to update application last_used:", error);
+    }
+  }
+
   // GET /application - Return all applications for the current user
   async getAllApplications(userId: number): Promise<Response> {
     try {

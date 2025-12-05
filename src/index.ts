@@ -132,6 +132,17 @@ export default {
         if (!tokenInfo) {
           return ApiResponse.error("Unauthorized", 401, "Authentication required");
         }
+
+        // 如果是客户端token，更新客户端的最后使用时间
+        if (tokenInfo.tokenType === "client" && tokenInfo.resourceId) {
+          try {
+            await clientHandlers.updateLastUsed(tokenInfo.resourceId);
+          } catch (error) {
+            console.error("Failed to update client last_used:", error);
+            // 静默失败，不影响WebSocket连接
+          }
+        }
+
         const upgrade = request.headers.get("Upgrade");
         if (!upgrade || upgrade.toLowerCase() !== "websocket") {
           return ApiResponse.json({ ok: true });

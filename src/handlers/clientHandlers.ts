@@ -15,6 +15,21 @@ export class ClientHandlers {
     };
   }
 
+  // 更新客户端的最后使用时间（带频率限制）
+  async updateLastUsed(clientId: number): Promise<void> {
+    try {
+      // 频率限制：仅当超过1分钟未更新或从未更新时才更新
+      await this.db.prepare(`
+        UPDATE clients
+        SET last_used = CURRENT_TIMESTAMP
+        WHERE id = ? AND (last_used IS NULL OR last_used < datetime('now', '-1 minute'))
+      `).bind(clientId).run();
+    } catch (error) {
+      console.error("Failed to update client last_used:", error);
+      // 静默失败
+    }
+  }
+
   // GET /client - Return all clients for the current user
   async getAllClients(userId: number): Promise<Response> {
     try {

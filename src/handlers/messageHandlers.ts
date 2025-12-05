@@ -122,6 +122,19 @@ export class MessageHandlers {
       }
 
       const newMessage = this.mapToMessage(result);
+
+      // 更新应用的最后使用时间（心跳），带有频率限制
+      try {
+        await this.db.prepare(`
+          UPDATE applications
+          SET last_used = CURRENT_TIMESTAMP
+          WHERE id = ? AND (last_used IS NULL OR last_used < datetime('now', '-1 minute'))
+        `).bind(appId).run();
+      } catch (error) {
+        console.error("Failed to update application last_used:", error);
+        // 静默失败，不影响消息创建流程
+      }
+
       this.broadcastMessage(newMessage);
 
       try {
