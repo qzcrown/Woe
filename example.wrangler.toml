@@ -1,0 +1,82 @@
+# Woe - Cloudflare Workers Configuration Example
+# ===============================================
+# This is an example configuration file for Woe deployment.
+# Copy this file to wrangler.toml and modify the values according to your setup.
+#
+# Basic Configuration
+# -------------------
+name = "woe"  # Worker name (appears in Cloudflare dashboard)
+main = "src/index.ts"  # Entry point for the Worker
+compatibility_date = "2025-11-28"  # Workers compatibility date
+workers_dev = false  # Set to true to enable *.workers.dev domain, false for custom domain only
+
+# Static Assets Configuration
+# ---------------------------
+# Serves the built frontend files from the public directory
+[assets]
+directory = "./public"  # Directory containing built frontend files
+binding = "ASSETS"  # Binding name used in Worker code to access assets
+
+# D1 Database Configuration
+# -------------------------
+# IMPORTANT: You must create a D1 database in Cloudflare and replace database_id with your actual database ID
+# Run: wrangler d1 create woe-db
+[[d1_databases]]
+binding = "DB"  # Binding name used in Worker code to access database
+database_name = "woe-db"  # Display name in Cloudflare dashboard (can be customized)
+database_id = "woe-db"  # MUST REPLACE: Get your actual database ID from `wrangler d1 list`
+
+# R2 Bucket Configuration
+# -----------------------
+# Used for storing application icons and other files
+# Run: wrangler r2 bucket create woe-storage (bucket name can be customized)
+[[r2_buckets]]
+binding = "R2"  # Binding name used in Worker code to access R2 bucket
+bucket_name = "woe-storage"  # R2 bucket name (can be customized)
+
+# Environment Variables
+# ---------------------
+[vars]
+# Environment identifier: "development" or "production"
+ENVIRONMENT = "development"
+
+# Application version
+VERSION = "1.0.0"
+
+# Default administrator credentials for initial login
+# SECURITY WARNING: Change these after first login!
+DEFAULT_ADMIN_USER = "admin"
+DEFAULT_ADMIN_PASSWORD = "password"
+
+# Whether to allow user registration via API
+# Set to false in production to control user creation
+REGISTRATION = false
+
+# Route Configuration (Optional)
+# ------------------------------
+# Uncomment and modify if you want to use a custom domain
+# [[routes]]
+# pattern = "your-domain.com"  # Your custom domain
+# custom_domain = true
+
+# Observability Configuration (Optional)
+# --------------------------------------
+# Uncomment to enable logging and tracing
+# [observability]
+# [observability.logs]
+# enabled = true
+# head_sampling_rate = 1
+# invocation_logs = true
+# persist = true
+# [observability.traces]
+# enabled = true
+# head_sampling_rate = 1
+# persist = true
+
+# SQL Migration Files (Already configured)
+# ----------------------------------------
+# Migration SQL files are automatically included in the Worker bundle
+# [[rules]]
+# type = "Text"
+# globs = ["**/*.sql"]
+# fallthrough = true
