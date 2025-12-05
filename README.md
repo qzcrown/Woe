@@ -520,7 +520,7 @@ npm run deploy
 
 ## 许可证
 
-[MIT License](LICENSE)
+[GPLv3 License](LICENSE)
 
 ## 相关链接
 

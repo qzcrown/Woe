@@ -139,10 +139,10 @@ After deployment, verify through the following methods:
 3. **Check System Status**
    ```bash
    # Check health status
-   curl https://your-domain/api/v1/health
+   curl https://your-domain/health
 
    # Check version information
-   curl https://your-domain/api/v1/version
+   curl https://your-domain/version
    ```
 
 ### Detailed Configuration Guide
@@ -523,7 +523,7 @@ Welcome to submit Issues and Pull Requests!
 
 ## License
 
-[MIT License](LICENSE)
+[GPL License](LICENSE)
 
 ## Related Links
 
