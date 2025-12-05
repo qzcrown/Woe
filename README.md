@@ -343,7 +343,7 @@ frontend/src/locales/
 ```bash
 # 使用默认管理员凭据进行 API 认证
 curl -u "admin:password" \
-  -X GET https://your-domain.workers.dev/api/v1/current/user
+  -X GET https://your-domain.workers.dev/current/user
 ```
 
 #### 2. 创建应用

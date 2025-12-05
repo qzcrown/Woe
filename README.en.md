@@ -343,7 +343,7 @@ After deployment, the system automatically creates a default administrator accou
 ```bash
 # Use default administrator credentials for API authentication
 curl -u "admin:password" \
-  -X GET https://your-domain.workers.dev/api/v1/current/user
+  -X GET https://your-domain.workers.dev/current/user
 ```
 
 #### 2. Creating Applications
@@ -523,7 +523,7 @@ Welcome to submit Issues and Pull Requests!
 
 ## License
 
-[GPL License](LICENSE)
+[GPLv3 License](LICENSE)
 
 ## Related Links
 
