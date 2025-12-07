@@ -47,7 +47,8 @@ export default {
     priorityNormal: 'Normal',
     priorityHigh: 'High',
     priorityEmergency: 'Emergency',
-    unknownError: 'Unknown error'
+    unknownError: 'Unknown error',
+    settings: 'Settings'
   },
   login: {
     title: 'Woe',
@@ -129,7 +130,10 @@ export default {
     priorityLow: 'Low',
     priorityNormal: 'Normal',
     priorityHigh: 'High',
-    priorityEmergency: 'Emergency'
+    priorityEmergency: 'Emergency',
+    enableBrowserNotifications: 'Enable Browser Notifications',
+    enableBrowserNotificationsDescription: 'Receive new message notifications in your browser, even when the page is not active.',
+    dismiss: 'Dismiss'
   },
   applications: {
     title: 'Application Management',
@@ -240,5 +244,48 @@ export default {
     disabledSuccess: 'Plugin "{name}" disabled successfully',
     toggleError: 'Failed to {action} plugin',
     loadError: 'Failed to load plugins'
+  },
+  notificationSettings: {
+    title: 'Notification Settings',
+    description: 'Manage browser notification preferences',
+    notSupported: 'Your browser does not support desktop notifications',
+    permission: 'Notification Permission',
+    permissionNotRequested: 'Not Requested',
+    permissionGranted: 'Granted',
+    permissionDenied: 'Denied',
+    permissionDefault: 'Notification permission has not been requested yet',
+    permissionGrantedDescription: 'You have granted permission to display notifications',
+    permissionDeniedDescription: 'You have denied permission to display notifications',
+    requestPermission: 'Request Permission',
+    requestPermissionDescription: 'Click the button below to request browser notification permission',
+    enableNotifications: 'Enable Notifications',
+    enableInBrowser: 'Enable in Browser',
+    enableInBrowserDescription: 'Please allow this site to show notifications in your browser settings',
+    settings: 'Notification Settings',
+    enableNotificationsDescription: 'Enable or disable browser notifications',
+    sound: 'Notification Sound',
+    soundDescription: 'Play notification sound',
+    requireInteraction: 'Require Interaction',
+    requireInteractionDescription: 'Notifications require manual dismissal',
+    showOnlyWhenPageHidden: 'Show Only When Page Hidden',
+    showOnlyWhenPageHiddenDescription: 'Only show notifications when the page is not visible',
+    priority: 'Notification Priority',
+    priorityDescription: 'Select which priority levels to show notifications for',
+    priorityAll: 'All Notifications',
+    priorityHigh: 'High Priority and Above',
+    priorityEmergency: 'Emergency Only',
+    test: 'Test Notifications',
+    testNotification: 'Send Test Notification',
+    testNotificationDescription: 'Send a test notification to verify your settings',
+    sendTest: 'Send Test',
+    testTitle: 'Test Notification',
+    testBody: 'This is a test notification to verify that your notification settings are working correctly.',
+    testSuccess: 'Test notification sent successfully',
+    testFailed: 'Failed to send test notification, please check your settings'
+  },
+  settings: {
+    title: 'Settings',
+    description: 'Manage your account and application settings',
+    notifications: 'Notifications'
   }
 }

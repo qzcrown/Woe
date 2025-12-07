@@ -47,7 +47,8 @@ export default {
     priorityNormal: '普通',
     priorityHigh: '高',
     priorityEmergency: '紧急',
-    unknownError: '未知错误'
+    unknownError: '未知错误',
+    settings: '设置'
   },
   login: {
     title: 'Woe',
@@ -129,7 +130,10 @@ export default {
     priorityLow: '低',
     priorityNormal: '普通',
     priorityHigh: '高',
-    priorityEmergency: '紧急'
+    priorityEmergency: '紧急',
+    enableBrowserNotifications: '启用浏览器通知',
+    enableBrowserNotificationsDescription: '在浏览器中接收新消息通知，即使页面不在活动状态也能收到提醒。',
+    dismiss: '忽略'
   },
   applications: {
     title: '应用管理',
@@ -240,5 +244,48 @@ export default {
     disabledSuccess: '插件 "{name}" 禁用成功',
     toggleError: '插件{action}失败',
     loadError: '加载插件失败'
+  },
+  notificationSettings: {
+    title: '通知设置',
+    description: '管理浏览器通知偏好设置',
+    notSupported: '您的浏览器不支持桌面通知',
+    permission: '通知权限',
+    permissionNotRequested: '未请求',
+    permissionGranted: '已授权',
+    permissionDenied: '已拒绝',
+    permissionDefault: '尚未请求通知权限',
+    permissionGrantedDescription: '您已授权浏览器显示通知',
+    permissionDeniedDescription: '您已拒绝浏览器显示通知',
+    requestPermission: '请求权限',
+    requestPermissionDescription: '点击下方按钮请求浏览器通知权限',
+    enableNotifications: '启用通知',
+    enableInBrowser: '在浏览器中启用',
+    enableInBrowserDescription: '请在浏览器设置中允许此网站显示通知',
+    settings: '通知设置',
+    enableNotificationsDescription: '启用或禁用浏览器通知',
+    sound: '通知声音',
+    soundDescription: '播放通知声音',
+    requireInteraction: '需要交互',
+    requireInteractionDescription: '通知需要用户手动关闭',
+    showOnlyWhenPageHidden: '仅在页面隐藏时显示',
+    showOnlyWhenPageHiddenDescription: '仅在页面不可见时显示通知',
+    priority: '通知优先级',
+    priorityDescription: '选择要显示的通知优先级',
+    priorityAll: '所有通知',
+    priorityHigh: '高优先级及以上',
+    priorityEmergency: '仅紧急通知',
+    test: '测试通知',
+    testNotification: '发送测试通知',
+    testNotificationDescription: '发送一条测试通知以验证设置',
+    sendTest: '发送测试',
+    testTitle: '测试通知',
+    testBody: '这是一条测试通知，用于验证您的通知设置是否正常工作。',
+    testSuccess: '测试通知发送成功',
+    testFailed: '测试通知发送失败，请检查您的设置'
+  },
+  settings: {
+    title: '设置',
+    description: '管理您的账户和应用程序设置',
+    notifications: '通知设置'
   }
 }

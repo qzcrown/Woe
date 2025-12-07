@@ -30,6 +30,30 @@
         {{ error }}
       </div>
 
+      <!-- Notification Permission Prompt -->
+      <div v-if="shouldShowNotificationPrompt" class="notification-prompt">
+        <div class="prompt-content">
+          <div class="prompt-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+          </div>
+          <div class="prompt-text">
+            <h3>{{ $t('messages.enableBrowserNotifications') }}</h3>
+            <p>{{ $t('messages.enableBrowserNotificationsDescription') }}</p>
+          </div>
+          <div class="prompt-actions">
+            <button @click="requestNotificationPermission" class="btn btn-primary">
+              {{ $t('messages.enableNotifications') }}
+            </button>
+            <button @click="dismissNotificationPrompt" class="btn btn-secondary">
+              {{ $t('common.dismiss') }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Message Filters -->
       <MessageFilters 
         :applications="applications"
@@ -153,6 +177,7 @@ import { applicationApi } from '@/services/api'
 import { wsService } from '@/services/websocket'
 import { ApiError } from '@/types'
 import { showError, showSuccess } from '@/utils/errorHandler'
+import { browserNotificationService } from '@/services/browserNotification'
 import type { Application, Message } from '@/types'
 
 const { t } = useI18n()
@@ -314,6 +339,7 @@ onMounted(() => {
   refreshMessages()
   loadApplications()
   wsService.onMessage(handleNewMessage)
+  checkNotificationPrompt()
 })
 
 onUnmounted(() => {
@@ -335,6 +361,37 @@ const handleMessageSent = (msg: Message) => {
 const canSendNotification = computed(() => {
   return (authStore.user?.admin === true) || applications.value.length > 0
 })
+
+// Check if browser notifications are available and not granted
+const shouldShowNotificationPrompt = ref(true)
+
+const checkNotificationPrompt = () => {
+  if (!browserNotificationService.isNotificationSupported() || 
+      browserNotificationService.getPermission() !== 'default') {
+    shouldShowNotificationPrompt.value = false
+    return
+  }
+  
+  // Check if user has dismissed the prompt before
+  const dismissed = localStorage.getItem('notification-prompt-dismissed')
+  if (dismissed) {
+    shouldShowNotificationPrompt.value = false
+  }
+}
+
+const requestNotificationPermission = async () => {
+  try {
+    await browserNotificationService.requestPermission()
+    shouldShowNotificationPrompt.value = false
+  } catch (error) {
+    console.error('Failed to request notification permission:', error)
+  }
+}
+
+const dismissNotificationPrompt = () => {
+  shouldShowNotificationPrompt.value = false
+  localStorage.setItem('notification-prompt-dismissed', 'true')
+}
 </script>
 
 <style scoped>
@@ -631,6 +688,79 @@ const canSendNotification = computed(() => {
   cursor: not-allowed;
 }
 
+/* Notification Prompt Styles */
+.notification-prompt {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.prompt-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.prompt-icon {
+  flex-shrink: 0;
+  color: #3b82f6;
+}
+
+.prompt-text {
+  flex: 1;
+}
+
+.prompt-text h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 0.25rem 0;
+}
+
+.prompt-text p {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.prompt-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.btn-primary {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #2563eb;
+}
+
+.btn-secondary {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.btn-secondary:hover {
+  background-color: #e5e7eb;
+}
+
 @media (max-width: 768px) {
   .page-header {
     flex-direction: column;
@@ -657,6 +787,17 @@ const canSendNotification = computed(() => {
     bottom: 1rem;
     right: 1rem;
     left: 1rem;
+  }
+
+  .prompt-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .prompt-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 </style>

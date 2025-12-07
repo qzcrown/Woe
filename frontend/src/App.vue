@@ -9,6 +9,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useMessagesStore } from '@/stores/messages'
+import { browserNotificationService } from '@/services/browserNotification'
 import Notification from '@/components/Notification.vue'
 
 const authStore = useAuthStore()
@@ -17,6 +18,15 @@ const messagesStore = useMessagesStore()
 onMounted(async () => {
   // Check authentication on app load
   await authStore.checkAuth()
+
+  // Initialize browser notification service
+  if (browserNotificationService.isNotificationSupported()) {
+    // Try to request permission if not already requested
+    if (browserNotificationService.getPermission() === 'default') {
+      // Don't request permission immediately, wait for user interaction
+      // This will be handled in the UI
+    }
+  }
 
   // Connect WebSocket if authenticated
   if (authStore.isAuthenticated && authStore.token) {
@@ -27,6 +37,9 @@ onMounted(async () => {
 onUnmounted(() => {
   // Disconnect WebSocket on app unmount
   messagesStore.disconnectWebSocket()
+  
+  // Clean up browser notification service
+  browserNotificationService.destroy()
 })
 </script>
 

@@ -1,4 +1,5 @@
 import { ApiError } from '@/types'
+import { browserNotificationService } from '@/services/browserNotification'
 
 export enum NotificationType {
   SUCCESS = 'success',
@@ -103,6 +104,14 @@ export class ErrorHandler {
       message,
       duration: 5000
     })
+    
+    // 显示浏览器通知
+    browserNotificationService.showNotification({
+      title,
+      body: message,
+      tag: `error-${this.generateId()}`,
+      requireInteraction: true
+    })
   }
 
   /**
@@ -127,6 +136,14 @@ export class ErrorHandler {
       message,
       duration: 5000
     })
+    
+    // 显示浏览器通知
+    browserNotificationService.showNotification({
+      title,
+      body: message,
+      tag: `network-error-${this.generateId()}`,
+      requireInteraction: true
+    })
   }
 
   /**
@@ -139,6 +156,13 @@ export class ErrorHandler {
       title,
       message,
       duration: 3000
+    })
+    
+    // 显示浏览器通知
+    browserNotificationService.showNotification({
+      title,
+      body: message,
+      tag: `success-${this.generateId()}`
     })
   }
 
@@ -153,6 +177,14 @@ export class ErrorHandler {
       message,
       duration: 4000
     })
+    
+    // 显示浏览器通知
+    browserNotificationService.showNotification({
+      title,
+      body: message,
+      tag: `warning-${this.generateId()}`,
+      requireInteraction: true
+    })
   }
 
   /**
@@ -165,6 +197,13 @@ export class ErrorHandler {
       title,
       message,
       duration: 4000
+    })
+    
+    // 显示浏览器通知
+    browserNotificationService.showNotification({
+      title,
+      body: message,
+      tag: `info-${this.generateId()}`
     })
   }
 
@@ -200,6 +239,27 @@ export class ErrorHandler {
           primary: true
         }
       ]
+    })
+  }
+
+  /**
+   * 显示新消息通知
+   */
+  showMessageNotification(title: string, message: string, priority?: number): void {
+    this.notify({
+      id: this.generateId(),
+      type: NotificationType.INFO,
+      title,
+      message,
+      duration: priority && priority >= 2 ? 0 : 4000 // 高优先级消息不自动消失
+    })
+    
+    // 显示浏览器通知
+    browserNotificationService.showNotification({
+      title,
+      body: message,
+      tag: `message-${this.generateId()}`,
+      requireInteraction: Boolean(priority && priority >= 2)
     })
   }
 
@@ -247,4 +307,8 @@ export const showConfirm = (
   onCancel?: () => void
 ) => {
   errorHandler.showConfirm(title, message, onConfirm, onCancel)
+}
+
+export const showMessageNotification = (title: string, message: string, priority?: number) => {
+  errorHandler.showMessageNotification(title, message, priority)
 }

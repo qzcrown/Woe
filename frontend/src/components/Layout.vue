@@ -23,6 +23,9 @@
         <router-link to="/plugins" class="nav-item" active-class="active">
           {{ $t('common.plugins') }}
         </router-link>
+        <router-link to="/settings" class="nav-item" active-class="active">
+          {{ $t('common.settings') }}
+        </router-link>
       </div>
       <div class="nav-user">
         <!-- 新增：语言切换按钮 -->

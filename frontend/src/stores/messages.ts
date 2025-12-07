@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { messageApi } from '@/services/api'
 import { wsService } from '@/services/websocket'
+import { browserNotificationService } from '@/services/browserNotification'
 import type { Message, Paging } from '@/types'
 
 export const useMessagesStore = defineStore('messages', () => {
@@ -78,6 +79,9 @@ export const useMessagesStore = defineStore('messages', () => {
     if (messages.value.length > 100) {
       messages.value = messages.value.slice(0, 100)
     }
+
+    // Show browser notification for new message
+    browserNotificationService.showMessageNotification(message)
   }
 
   const connectWebSocket = (token: string) => {
