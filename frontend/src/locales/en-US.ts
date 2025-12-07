@@ -91,7 +91,7 @@ export default {
     title: 'Message Management',
     searchPlaceholder: 'Search messages...',
     noMessages: 'No messages',
-    priority: 'Priority',
+    messagePriority: 'Priority',
     application: 'Application',
     date: 'Date',
     content: 'Content',
@@ -110,6 +110,26 @@ export default {
     noMoreMessages: 'No more messages',
     loadingMessages: 'Loading messages...',
     emptyDescription: 'Messages will appear here when applications send notifications.'
+    , sendNotification: 'Send Notification'
+    , send: 'Send'
+    , sentSuccessfully: 'Notification sent'
+    , sendFailed: 'Failed to send'
+    , notificationType: 'Notification Type'
+    , targetApplication: 'Target Application'
+    , selectApplicationPlaceholder: 'Select target application'
+    , titleLabel: 'Title'
+    , titlePlaceholder: 'Enter notification title'
+    , contentPlaceholder: 'Enter notification content'
+    , validation: {
+      appRequired: 'Please select an application',
+      titleRequired: 'Please enter a title',
+      contentRequired: 'Please enter content'
+    },
+    priority: 'Priority',
+    priorityLow: 'Low',
+    priorityNormal: 'Normal',
+    priorityHigh: 'High',
+    priorityEmergency: 'Emergency'
   },
   applications: {
     title: 'Application Management',

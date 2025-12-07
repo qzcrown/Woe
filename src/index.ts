@@ -6,6 +6,8 @@ import { MessageHandlers } from "./handlers/messageHandlers.ts";
 import { PluginHandlers } from "./handlers/pluginHandlers.ts";
 import { Env } from "./types/index.ts";
 import { ApiResponse } from "./utils/response.ts";
+import { createDrizzle } from "./drizzle/index.ts";
+import { SchemaManager } from "./services/schemaManager.ts";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -23,22 +25,24 @@ export default {
       return new Response(null, { status: 200, headers: corsHeaders });
     }
 
-    // Initialize handlers
-    const authenticator = new Authenticator(env.DB);
+    // Initialize Drizzle ORM
+    const drizzle = createDrizzle(env.DB);
 
-    const userHandlers = new UserHandlers(env.DB);
-    const applicationHandlers = new ApplicationHandlers(env.DB);
-    const clientHandlers = new ClientHandlers(env.DB);
-    const messageHandlers = new MessageHandlers(env.DB);
-    const pluginHandlers = new PluginHandlers(env.DB);
+    // Initialize handlers with Drizzle instance
+    const authenticator = new Authenticator(drizzle);
+
+    const userHandlers = new UserHandlers(drizzle);
+    const applicationHandlers = new ApplicationHandlers(drizzle);
+    const clientHandlers = new ClientHandlers(drizzle);
+    const messageHandlers = new MessageHandlers(drizzle);
+    const pluginHandlers = new PluginHandlers(drizzle);
 
     try {
       try {
-        const { InitializationService } = await import("./services/initializationService.ts");
-        const initService = new InitializationService(env.DB);
-        await initService.runAutoMigrationsIfNeeded();
+        const sm = new SchemaManager(drizzle.$client);
+        await sm.ensureUpToDate();
       } catch (e) {
-        console.warn("Auto migrations check failed:", e instanceof Error ? e.message : e);
+        console.warn("Schema ensureUpToDate failed:", e instanceof Error ? e.message : e);
       }
       // Serve static assets for the web UI
       // Define frontend SPA routes that should serve index.html
@@ -75,8 +79,8 @@ export default {
       // System endpoints
       if (path === "/health" && method === "GET") {
         try {
-          // Test database connection
-          const dbResult = await env.DB.prepare("SELECT 1 as test").first();
+          // Test database connection using Drizzle
+          const dbResult = await drizzle.$client.prepare("SELECT 1 as test").first();
           const dbStatus = dbResult ? "green" : "red";
 
           return ApiResponse.json({
@@ -103,11 +107,12 @@ export default {
       if (path === "/status" && method === "GET") {
         try {
           // Dynamically import to avoid issues if service doesn't exist
-          const { InitializationService } = await import("./services/initializationService.ts");
-          const initService = new InitializationService(env.DB);
+        const { InitService } = await import("./services/initService.ts");
+        const initService = new InitService(drizzle.$client);
 
-          const dbResult = await env.DB.prepare("SELECT 1 as test").first();
-          const dbStatus = dbResult ? "green" : "red";
+        // Test database connection using Drizzle
+        const dbResult = await drizzle.$client.prepare("SELECT 1 as test").first();
+        const dbStatus = dbResult ? "green" : "red";
           const isInitialized = await initService.isSystemInitialized();
 
           return ApiResponse.json({
@@ -756,15 +761,15 @@ export default {
       }
 
       if (path === "/init/status" && method === "GET") {
-        const { InitializationService } = await import("./services/initializationService.ts");
-        const initService = new InitializationService(env.DB);
+        const { InitService } = await import("./services/initService.ts");
+        const initService = new InitService(drizzle.$client);
         const status = await initService.getInitStatus();
         return ApiResponse.json(status);
       }
 
       if (path === "/init/admin" && method === "POST") {
-        const { InitializationService } = await import("./services/initializationService.ts");
-        const initService = new InitializationService(env.DB);
+        const { InitService } = await import("./services/initService.ts");
+        const initService = new InitService(drizzle.$client);
 
         const isDefaultAuth = await authenticator.isDefaultInitAuth(request, env);
         const initialized = await initService.isSystemInitialized();
@@ -774,12 +779,11 @@ export default {
           return ApiResponse.error("Forbidden", 403, "Initialization not allowed or default credentials invalid");
         }
 
-        const needsMigrations = await initService.checkIfMigrationsNeeded();
-        if (needsMigrations) {
-          const mig = await initService.applyAllMigrations();
-          if (!mig.success) {
-            return ApiResponse.error("Database error", 500, mig.error || "Migration failed");
-          }
+        // Ensure schema is up to date before admin creation
+        try {
+          await initService.ensureSchema();
+        } catch (e) {
+          return ApiResponse.error("Database error", 500, e instanceof Error ? e.message : String(e));
         }
 
         const dbReady = await initService.validateDatabase();

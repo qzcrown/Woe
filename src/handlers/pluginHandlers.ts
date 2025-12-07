@@ -1,8 +1,11 @@
 import { PluginConf } from "../types/index.ts";
 import { ApiResponse, safeJsonParse } from "../utils/response.ts";
+import { DrizzleDB } from "../drizzle/index.ts";
+import { pluginConfigs, pluginLogs } from "../models/index.ts";
+import { eq, sql, desc } from "drizzle-orm";
 
 export class PluginHandlers {
-  constructor(private db: D1Database) {}
+  constructor(private drizzle: DrizzleDB) {}
 
   // Helper to map DB result to PluginConf type
   private mapToPluginConf(row: any): PluginConf {
@@ -29,13 +32,12 @@ export class PluginHandlers {
   }
 
   private async ensureDefaultPlugins(userId: number): Promise<void> {
-    const existingRes = await this.db.prepare(`
-      SELECT module_path
-      FROM plugin_configs
-      WHERE user_id = ?
-    `).bind(userId).all();
+    const existingRes = await this.drizzle
+      .select({ modulePath: pluginConfigs.modulePath })
+      .from(pluginConfigs)
+      .where(eq(pluginConfigs.userId, userId));
 
-    const existing = new Set((existingRes.results || []).map((r: any) => r.module_path as string));
+    const existing = new Set(existingRes.map(r => r.modulePath));
 
     const builtins = [
       { modulePath: 'builtin/webhooker', name: 'Webhooker', capabilities: ['webhooker', 'messenger'] },
@@ -45,10 +47,16 @@ export class PluginHandlers {
     for (const b of builtins) {
       if (!existing.has(b.modulePath)) {
         const token = this.generatePluginToken();
-        await this.db.prepare(`
-          INSERT INTO plugin_configs (user_id, name, token, module_path, enabled, config_yaml, capabilities, author, license, website)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(userId, b.name, token, b.modulePath, 0, '', JSON.stringify(b.capabilities), 'Woe', 'MIT', null).run();
+        await this.drizzle
+          .insert(pluginConfigs)
+          .values({
+            userId,
+            name: b.name,
+            token,
+            modulePath: b.modulePath,
+            enabled: 0,
+            configYaml: ''
+          });
       }
     }
   }
@@ -57,15 +65,32 @@ export class PluginHandlers {
   async getAllPlugins(userId: number): Promise<Response> {
     try {
       await this.ensureDefaultPlugins(userId);
-      const result = await this.db.prepare(`
-        SELECT id, user_id as userId, name, token, module_path as modulePath,
-               enabled, capabilities, author, license, website
-        FROM plugin_configs
-        WHERE user_id = ?
-        ORDER BY id
-      `).bind(userId).all();
+      
+      const results = await this.drizzle
+        .select({
+          id: pluginConfigs.id,
+          userId: pluginConfigs.userId,
+          name: pluginConfigs.name,
+          token: pluginConfigs.token,
+          modulePath: pluginConfigs.modulePath,
+          enabled: pluginConfigs.enabled,
+          configYaml: pluginConfigs.configYaml
+        })
+        .from(pluginConfigs)
+        .where(eq(pluginConfigs.userId, userId))
+        .orderBy(pluginConfigs.id);
 
-      const plugins = result.results.map(row => this.mapToPluginConf(row));
+      const plugins = results.map(row => ({
+        id: row.id,
+        name: row.name,
+        token: row.token,
+        modulePath: row.modulePath,
+        enabled: Boolean(row.enabled),
+        capabilities: [],
+        author: '',
+        license: '',
+        website: ''
+      }));
 
       return ApiResponse.json(plugins);
     } catch (error) {
@@ -82,18 +107,21 @@ export class PluginHandlers {
         return ApiResponse.error("Bad Request", 400, "Invalid plugin ID");
       }
 
-      const result = await this.db.prepare(`
-        SELECT config_yaml, module_path
-        FROM plugin_configs
-        WHERE id = ? AND user_id = ?
-      `).bind(pluginId, userId).first();
+      const result = await this.drizzle
+        .select({ 
+          configYaml: pluginConfigs.configYaml,
+          modulePath: pluginConfigs.modulePath 
+        })
+        .from(pluginConfigs)
+        .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
+        .get();
 
       if (!result) {
         return ApiResponse.error("Not Found", 404, "Plugin not found");
       }
 
       // Return YAML config as plain text if it exists, otherwise return empty string
-      const configYaml = (result.config_yaml as string) || "";
+      const configYaml = result.configYaml || "";
 
       // If no config exists, return empty YAML document with correct content type
       if (!configYaml) {
@@ -106,7 +134,7 @@ export class PluginHandlers {
       }
 
       // Return as plain text with YAML content type
-      return new Response(configYaml as string, {
+      return new Response(configYaml, {
         status: 200,
         headers: {
           "Content-Type": "application/x-yaml"
@@ -126,15 +154,22 @@ export class PluginHandlers {
         return ApiResponse.error("Bad Request", 400, "Invalid plugin ID")
       }
 
-      const result = await this.db.prepare(`
-        SELECT id, event, status, duration_ms as durationMs, error, created_at as createdAt
-        FROM plugin_logs
-        WHERE plugin_id = ? AND user_id = ?
-        ORDER BY id DESC
-        LIMIT ?
-      `).bind(pluginId, userId, Math.min(Math.max(limit, 1), 200)).all()
+      const result = await this.drizzle
+        .select({
+          id: pluginLogs.id,
+          event: pluginLogs.event,
+          status: pluginLogs.status,
+          durationMs: pluginLogs.durationMs,
+          error: pluginLogs.error,
+          createdAt: pluginLogs.createdAt
+        })
+        .from(pluginLogs)
+        .where(sql`${pluginLogs.pluginId} = ${pluginId} AND ${pluginLogs.userId} = ${userId}`)
+        .orderBy(desc(pluginLogs.id))
+        .limit(Math.min(Math.max(limit, 1), 200))
+        .execute()
 
-      return ApiResponse.json(result.results || [])
+      return ApiResponse.json(result)
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to retrieve plugin logs")
     }
@@ -149,9 +184,11 @@ export class PluginHandlers {
       }
 
       // Verify plugin exists and belongs to user
-      const plugin = await this.db.prepare(`
-        SELECT id FROM plugin_configs WHERE id = ? AND user_id = ?
-      `).bind(pluginId, userId).first();
+      const plugin = await this.drizzle
+        .select({ id: pluginConfigs.id })
+        .from(pluginConfigs)
+        .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
+        .get();
 
       if (!plugin) {
         return ApiResponse.error("Not Found", 404, "Plugin not found");
@@ -167,16 +204,18 @@ export class PluginHandlers {
       const configYaml = await request.text();
 
       // Update the config
-      await this.db.prepare(`
-        UPDATE plugin_configs
-        SET config_yaml = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND user_id = ?
-      `).bind(configYaml, pluginId, userId).run();
+      await this.drizzle
+        .update(pluginConfigs)
+        .set({
+          configYaml,
+          updatedAt: sql`CURRENT_TIMESTAMP`
+        })
+        .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`);
 
       try {
-        const { PluginManager } = await import('../plugins/manager.ts')
-        const pm = new PluginManager(this.db)
-        pm.invalidate(userId)
+        const { PluginManager } = await import('../plugins/manager.ts');
+        const pm = new PluginManager(this.drizzle);
+        pm.invalidate(userId);
       } catch {}
       return ApiResponse.json({});
     } catch (error) {
@@ -194,20 +233,22 @@ export class PluginHandlers {
       }
 
       // Verify plugin exists and belongs to user, then enable it
-      const result = await this.db.prepare(`
-        UPDATE plugin_configs
-        SET enabled = 1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND user_id = ?
-      `).bind(pluginId, userId).run();
+      const result = await this.drizzle
+        .update(pluginConfigs)
+        .set({
+          enabled: 1,
+          updatedAt: sql`CURRENT_TIMESTAMP`
+        })
+        .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`);
 
       if (result.meta.changes === 0) {
         return ApiResponse.error("Not Found", 404, "Plugin not found or no permission");
       }
 
       try {
-        const { PluginManager } = await import('../plugins/manager.ts')
-        const pm = new PluginManager(this.db)
-        pm.invalidate(userId)
+        const { PluginManager } = await import('../plugins/manager.ts');
+        const pm = new PluginManager(this.drizzle);
+        pm.invalidate(userId);
       } catch {}
       return ApiResponse.json({});
     } catch (error) {
@@ -225,20 +266,22 @@ export class PluginHandlers {
       }
 
       // Verify plugin exists and belongs to user, then disable it
-      const result = await this.db.prepare(`
-        UPDATE plugin_configs
-        SET enabled = 0, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND user_id = ?
-      `).bind(pluginId, userId).run();
+      const result = await this.drizzle
+        .update(pluginConfigs)
+        .set({
+          enabled: 0,
+          updatedAt: sql`CURRENT_TIMESTAMP`
+        })
+        .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`);
 
       if (result.meta.changes === 0) {
         return ApiResponse.error("Not Found", 404, "Plugin not found or no permission");
       }
 
       try {
-        const { PluginManager } = await import('../plugins/manager.ts')
-        const pm = new PluginManager(this.db)
-        pm.invalidate(userId)
+        const { PluginManager } = await import('../plugins/manager.ts');
+        const pm = new PluginManager(this.drizzle);
+        pm.invalidate(userId);
       } catch {}
       return ApiResponse.json({});
     } catch (error) {
@@ -255,25 +298,31 @@ export class PluginHandlers {
         return ApiResponse.error("Bad Request", 400, "Invalid plugin ID");
       }
 
-      const result = await this.db.prepare(`
-        SELECT id, name, module_path, enabled, config_yaml
-        FROM plugin_configs
-        WHERE id = ? AND user_id = ?
-      `).bind(pluginId, userId).first();
+      const pluginConfig = await this.drizzle
+        .select({
+          id: pluginConfigs.id,
+          name: pluginConfigs.name,
+          modulePath: pluginConfigs.modulePath,
+          enabled: pluginConfigs.enabled,
+          configYaml: pluginConfigs.configYaml
+        })
+        .from(pluginConfigs)
+        .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
+        .get();
 
-      if (!result) {
+      if (!pluginConfig) {
         return ApiResponse.error("Not Found", 404, "Plugin not found");
       }
 
-      if (!Boolean((result as any).enabled)) {
+      if (!Boolean(pluginConfig.enabled)) {
         return ApiResponse.json({})
       }
 
       try {
         const { parseYaml } = await import('../utils/yaml.ts')
-        const config = parseYaml((result as any).config_yaml)
+        const config = parseYaml(pluginConfig.configYaml)
         const { resolve } = await import('../plugins/registry.ts')
-        const plugin = resolve((result as any).module_path, (result as any).id, (result as any).name)
+        const plugin = resolve(pluginConfig.modulePath, pluginConfig.id, pluginConfig.name)
         if (!plugin || !plugin.renderDisplay) {
           return ApiResponse.json({})
         }

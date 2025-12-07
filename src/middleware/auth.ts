@@ -1,4 +1,7 @@
 import { Env } from "../types/index.ts";
+import { DrizzleDB } from "../drizzle/index.ts";
+import { users, applications, clients } from "../models/index.ts";
+import { eq, and, count } from "drizzle-orm";
 
 interface TokenInfo {
   userId: number;
@@ -15,7 +18,7 @@ interface UserInfo {
 }
 
 export class Authenticator {
-  constructor(private db: D1Database) {}
+  constructor(private drizzle: DrizzleDB) {}
 
   // Add a private method to parse basic auth
   private parseBasicAuth(authHeader: string): { username: string; password: string } | null {
@@ -44,9 +47,10 @@ export class Authenticator {
   async initializeDefaultAdmin(defaultUsername?: string, defaultPassword?: string): Promise<boolean> {
     try {
       // 检查是否已有用户
-      const existingUserCount = await this.db.prepare(`
-        SELECT COUNT(*) as count FROM users
-      `).first<{ count: number }>();
+      const existingUserCount = await this.drizzle
+        .select({ count: count() })
+        .from(users)
+        .get();
 
       if (existingUserCount && existingUserCount.count > 0) {
         console.log("Users already exist, skipping admin initialization");
@@ -60,12 +64,16 @@ export class Authenticator {
       }
 
       // 创建默认管理员用户
-      const result = await this.db.prepare(`
-        INSERT INTO users (name, pass, admin, created_at)
-        VALUES (?, ?, 1, datetime('now'))
-      `).bind(defaultUsername, defaultPassword).run();
+      const result = await this.drizzle
+        .insert(users)
+        .values({
+          name: defaultUsername,
+          pass: defaultPassword,
+          admin: true,
+          createdAt: new Date().toISOString()
+        });
 
-      if (result.success) {
+      if (result.meta.changes > 0) {
         console.log(`Default admin user '${defaultUsername}' created successfully`);
         return true;
       } else {
@@ -114,8 +122,8 @@ export class Authenticator {
       const { username, password } = credentials;
 
       if (env.DEFAULT_ADMIN_USER && env.DEFAULT_ADMIN_PASSWORD && username === env.DEFAULT_ADMIN_USER && password === env.DEFAULT_ADMIN_PASSWORD) {
-        const { InitializationService } = await import("../services/initializationService.ts");
-        const initService = new InitializationService(this.db);
+        const { InitService } = await import("../services/initService.ts");
+        const initService = new InitService(this.drizzle.$client);
         const isInitialized = await initService.isSystemInitialized();
         if (!isInitialized) {
           return null;
@@ -124,11 +132,17 @@ export class Authenticator {
       }
 
       // 正常用户认证流程
-      const result = await this.db.prepare(`
-        SELECT id, name, pass, admin, disabled
-        FROM users
-        WHERE name = ? AND disabled = 0
-      `).bind(username).first();
+      const result = await this.drizzle
+        .select({
+          id: users.id,
+          name: users.name,
+          pass: users.pass,
+          admin: users.admin,
+          disabled: users.disabled
+        })
+        .from(users)
+        .where(and(eq(users.name, username), eq(users.disabled, false)))
+        .get();
 
       if (!result) return null;
 
@@ -160,38 +174,60 @@ export class Authenticator {
   private async validateToken(token: string): Promise<TokenInfo | null> {
     try {
       if (token.startsWith("A")) {
-        const result = await this.db.prepare(`
-          SELECT a.id, a.user_id, u.admin as user_admin
-          FROM applications a
-          JOIN users u ON a.user_id = u.id
-          WHERE a.token = ?
-        `).bind(token).first();
-
+        const result = await this.drizzle
+          .select({
+            id: applications.id,
+            userId: applications.userId
+          })
+          .from(applications)
+          .where(eq(applications.token, token))
+          .get();
+        
         if (result) {
-          return {
-            userId: (result as any).user_id,
-            isAdmin: (result as any).user_admin,
-            tokenType: "app" as const,
-            resourceId: (result as any).id
-          };
+          // Get user admin status separately
+          const userResult = await this.drizzle
+            .select({ admin: users.admin })
+            .from(users)
+            .where(eq(users.id, result.userId))
+            .get();
+
+          if (userResult) {
+            return {
+              userId: result.userId,
+              isAdmin: userResult.admin,
+              tokenType: "app" as const,
+              resourceId: result.id
+            };
+          }
         }
       }
 
       if (token.startsWith("C")) {
-        const result = await this.db.prepare(`
-          SELECT c.id, c.user_id, u.admin as user_admin
-          FROM clients c
-          JOIN users u ON c.user_id = u.id
-          WHERE c.token = ?
-        `).bind(token).first();
-
+        const result = await this.drizzle
+          .select({
+            id: clients.id,
+            userId: clients.userId
+          })
+          .from(clients)
+          .where(eq(clients.token, token))
+          .get();
+        
         if (result) {
-          return {
-            userId: (result as any).user_id,
-            isAdmin: (result as any).user_admin,
-            tokenType: "client" as const,
-            resourceId: (result as any).id
-          };
+          // Get user admin status separately
+          const userResult = await this.drizzle
+            .select({ admin: users.admin })
+            .from(users)
+            .where(eq(users.id, result.userId))
+            .get();
+
+          if (userResult) {
+            return {
+              userId: result.userId,
+              isAdmin: userResult.admin,
+              tokenType: "client" as const,
+              resourceId: result.id
+            };
+          }
         }
       }
 

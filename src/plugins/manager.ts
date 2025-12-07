@@ -3,6 +3,9 @@ import { ExecutablePlugin, PluginContext } from './types.ts'
 import { register as reg, resolve as res } from './registry.ts'
 import { createWebhooker } from './builtin/webhooker.ts'
 import { createDisplayer } from './builtin/displayer.ts'
+import { DrizzleDB } from '../drizzle/index.ts'
+import { pluginConfigs, pluginLogs } from '../models/index.ts'
+import { eq, and } from 'drizzle-orm'
 
 reg('builtin/webhooker', createWebhooker)
 reg('builtin/displayer', createDisplayer)
@@ -11,24 +14,32 @@ export type PluginEvent = 'message.create' | 'message.delete' | 'application.cre
 
 export class PluginManager {
   private cache: Map<number, ExecutablePlugin[]> = new Map()
-  constructor(private db: D1Database) {}
+  constructor(private drizzle: DrizzleDB) {}
 
   async loadForUser(userId: number): Promise<ExecutablePlugin[]> {
     const cached = this.cache.get(userId)
     if (cached) return cached
-    const result = await this.db.prepare(`
-      SELECT id, name, module_path as modulePath, config_yaml as configYaml
-      FROM plugin_configs
-      WHERE user_id = ? AND enabled = 1
-    `).bind(userId).all()
+    
+    const pluginConfigsResult = await this.drizzle
+      .select({
+        id: pluginConfigs.id,
+        name: pluginConfigs.name,
+        modulePath: pluginConfigs.modulePath,
+        configYaml: pluginConfigs.configYaml
+      })
+      .from(pluginConfigs)
+      .where(and(eq(pluginConfigs.userId, userId), eq(pluginConfigs.enabled, 1)))
+      .all()
+    
     const plugins: ExecutablePlugin[] = []
-    for (const row of result.results) {
-      const p = res(row.modulePath as string, row.id as number, row.name as string)
+    for (const row of pluginConfigsResult) {
+      const p = res(row.modulePath, row.id, row.name)
       if (!p) continue
-      const conf = parseYaml(row.configYaml as string | null)
+      const conf = parseYaml(row.configYaml || null)
       await p.init({ config: conf })
       plugins.push(p)
     }
+    
     this.cache.set(userId, plugins)
     return plugins
   }
@@ -41,8 +52,9 @@ export class PluginManager {
     const plugins = await this.loadForUser(userId)
     for (const p of plugins) {
       const start = Date.now()
-      let status = 'ok'
+      let status: 'ok' | 'error' = 'ok'
       let errMsg = ''
+      
       try {
         switch (event) {
           case 'message.create':
@@ -62,12 +74,20 @@ export class PluginManager {
         status = 'error'
         errMsg = e instanceof Error ? e.message : 'unknown'
       }
+      
       const duration = Date.now() - start
+      
       try {
-        await this.db.prepare(`
-          INSERT INTO plugin_logs (plugin_id, user_id, event, status, duration_ms, error)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).bind(p.id, userId, event, status, duration, errMsg || null).run()
+        await this.drizzle
+          .insert(pluginLogs)
+          .values({
+            pluginId: p.id,
+            userId,
+            event,
+            status: status === 'ok' ? 1 : 0,
+            durationMs: duration,
+            error: errMsg || null
+          })
       } catch {}
     }
   }

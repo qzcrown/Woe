@@ -1,9 +1,12 @@
 import { generateToken } from "../middleware/auth.ts";
 import { Application } from "../types/index.ts";
-import { ApiResponse, toBoolean, formatDate } from "../utils/response.ts";
+import { ApiResponse, formatDate } from "../utils/response.ts";
+import { DrizzleDB } from "../drizzle/index.ts";
+import { applications, users } from "../models/index.ts";
+import { eq, sql } from "drizzle-orm";
 
 export class ApplicationHandlers {
-  constructor(private db: D1Database) {}
+  constructor(private drizzle: DrizzleDB) {}
 
   // Helper to map DB result to Application type
   private mapToApplication(row: any): Application {
@@ -12,7 +15,7 @@ export class ApplicationHandlers {
       token: row.token,
       name: row.name,
       description: row.description || "",
-      internal: toBoolean(row.internal),
+      internal: Boolean(row.internal),
       image: row.image || "",
       lastUsed: formatDate(row.lastUsed) || null,
       defaultPriority: row.defaultPriority || 0
@@ -22,11 +25,10 @@ export class ApplicationHandlers {
   // 更新应用的最后使用时间（带频率限制）
   async updateLastUsed(applicationId: number): Promise<void> {
     try {
-      await this.db.prepare(`
-        UPDATE applications
-        SET last_used = CURRENT_TIMESTAMP
-        WHERE id = ? AND (last_used IS NULL OR last_used < datetime('now', '-1 minute'))
-      `).bind(applicationId).run();
+      await this.drizzle
+        .update(applications)
+        .set({ lastUsed: sql`CURRENT_TIMESTAMP` })
+        .where(sql`${applications.id} = ${applicationId} AND (${applications.lastUsed} IS NULL OR ${applications.lastUsed} < datetime('now', '-1 minute'))`);
     } catch (error) {
       console.error("Failed to update application last_used:", error);
     }
@@ -35,16 +37,34 @@ export class ApplicationHandlers {
   // GET /application - Return all applications for the current user
   async getAllApplications(userId: number): Promise<Response> {
     try {
-      const result = await this.db.prepare(`
-        SELECT id, user_id as userId, token, name, description, default_priority as defaultPriority,
-               image, internal, last_used as lastUsed
-        FROM applications
-        WHERE user_id = ?
-        ORDER BY id
-      `).bind(userId).all();
+      const apps = await this.drizzle
+        .select({
+          id: applications.id,
+          userId: applications.userId,
+          token: applications.token,
+          name: applications.name,
+          description: applications.description,
+          defaultPriority: applications.defaultPriority,
+          image: applications.image,
+          internal: applications.internal,
+          lastUsed: applications.lastUsed
+        })
+        .from(applications)
+        .where(eq(applications.userId, userId))
+        .orderBy(applications.id);
 
-      const applications = result.results.map(row => this.mapToApplication(row));
-      return ApiResponse.json(applications);
+      const mappedApps = apps.map(row => ({
+        id: row.id,
+        token: row.token,
+        name: row.name,
+        description: row.description || "",
+        internal: Boolean(row.internal),
+        image: row.image || "",
+        lastUsed: formatDate(row.lastUsed) || null,
+        defaultPriority: row.defaultPriority || 0
+      }));
+
+      return ApiResponse.json(mappedApps);
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to retrieve applications");
     }
@@ -56,21 +76,47 @@ export class ApplicationHandlers {
       const token = generateToken("app");
       const internal = false; // Default for created apps
 
-      const result = await this.db.prepare(`
-        INSERT INTO applications (user_id, token, name, description, default_priority, internal)
-        VALUES (?, ?, ?, ?, ?, ?)
-        RETURNING id, user_id as userId, token, name, description, default_priority as defaultPriority,
-                  image, internal, last_used as lastUsed
-      `).bind(userId, token, name, description || "", defaultPriority || 0, internal ? 1 : 0).first();
+      const result = await this.drizzle
+        .insert(applications)
+        .values({
+          userId,
+          token,
+          name,
+          description: description || "",
+          defaultPriority: defaultPriority || 0,
+          internal
+        })
+        .returning({
+          id: applications.id,
+          userId: applications.userId,
+          token: applications.token,
+          name: applications.name,
+          description: applications.description,
+          defaultPriority: applications.defaultPriority,
+          image: applications.image,
+          internal: applications.internal,
+          lastUsed: applications.lastUsed
+        });
 
-      if (!result) {
+      if (!result || result.length === 0) {
         return ApiResponse.error("Application creation failed", 400, "Could not create application");
       }
 
-      const app = this.mapToApplication(result)
+      const row = result[0];
+      const app: Application = {
+        id: row.id,
+        token: row.token,
+        name: row.name,
+        description: row.description || "",
+        internal: Boolean(row.internal),
+        image: row.image || "",
+        lastUsed: formatDate(row.lastUsed) || null,
+        defaultPriority: row.defaultPriority || 0
+      };
+
       try {
         const { PluginManager } = await import('../plugins/manager.ts')
-        const pm = new PluginManager(this.db)
+        const pm = new PluginManager(this.drizzle)
         await pm.emit(userId, 'application.create', {
           userId,
           now: new Date().toISOString(),
@@ -86,18 +132,40 @@ export class ApplicationHandlers {
   // GET /application/{id} - Get an application by ID
   async getApplication(userId: number, id: string): Promise<Response> {
     try {
-      const result = await this.db.prepare(`
-        SELECT id, user_id as userId, token, name, description, default_priority as defaultPriority,
-               image, internal, last_used as lastUsed
-        FROM applications
-        WHERE id = ? AND user_id = ?
-      `).bind(parseInt(id), userId).first();
+      const appId = parseInt(id);
+      
+      const result = await this.drizzle
+        .select({
+          id: applications.id,
+          userId: applications.userId,
+          token: applications.token,
+          name: applications.name,
+          description: applications.description,
+          defaultPriority: applications.defaultPriority,
+          image: applications.image,
+          internal: applications.internal,
+          lastUsed: applications.lastUsed
+        })
+        .from(applications)
+        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`)
+        .get();
 
       if (!result) {
         return ApiResponse.error("Not Found", 404, "Application not found");
       }
 
-      return ApiResponse.json(this.mapToApplication(result));
+      const app: Application = {
+        id: result.id,
+        token: result.token,
+        name: result.name,
+        description: result.description || "",
+        internal: Boolean(result.internal),
+        image: result.image || "",
+        lastUsed: formatDate(result.lastUsed) || null,
+        defaultPriority: result.defaultPriority || 0
+      };
+
+      return ApiResponse.json(app);
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to retrieve application");
     }
@@ -106,42 +174,59 @@ export class ApplicationHandlers {
   // PUT /application/{id} - Update an application
   async updateApplication(userId: number, id: string, data: {name?: string; description?: string; defaultPriority?: number}): Promise<Response> {
     try {
-      const updateFields = [];
-      const values = [];
+      const appId = parseInt(id);
+      const updateData: any = {
+        updatedAt: sql`CURRENT_TIMESTAMP`
+      };
 
       if (data.name) {
-        updateFields.push("name = ?");
-        values.push(data.name);
+        updateData.name = data.name;
       }
       if (data.description !== undefined) {
-        updateFields.push("description = ?");
-        values.push(data.description);
+        updateData.description = data.description;
       }
       if (data.defaultPriority !== undefined) {
-        updateFields.push("default_priority = ?");
-        values.push(data.defaultPriority);
+        updateData.defaultPriority = data.defaultPriority;
       }
 
-      if (updateFields.length === 0) {
-        return this.getApplication(userId, id); // Nothing to update, return current state
+      if (Object.keys(updateData).length === 1) {
+        // Only updated_at was set, nothing to update
+        return this.getApplication(userId, id);
       }
 
-      updateFields.push("updated_at = CURRENT_TIMESTAMP");
-      values.push(userId, parseInt(id));
+      const result = await this.drizzle
+        .update(applications)
+        .set(updateData)
+        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`)
+        .returning({
+          id: applications.id,
+          userId: applications.userId,
+          token: applications.token,
+          name: applications.name,
+          description: applications.description,
+          defaultPriority: applications.defaultPriority,
+          image: applications.image,
+          internal: applications.internal,
+          lastUsed: applications.lastUsed
+        });
 
-      const result = await this.db.prepare(`
-        UPDATE applications
-        SET ${updateFields.join(", ")}
-        WHERE id = ? AND user_id = ?
-        RETURNING id, user_id as userId, token, name, description, default_priority as defaultPriority,
-                  image, internal, last_used as lastUsed, created_at as createdAt, updated_at as updatedAt
-      `).bind(...values).first();
-
-      if (!result) {
+      if (!result || result.length === 0) {
         return ApiResponse.error("Not Found", 404, "Application not found or update failed");
       }
 
-      return ApiResponse.json(this.mapToApplication(result));
+      const row = result[0];
+      const app: Application = {
+        id: row.id,
+        token: row.token,
+        name: row.name,
+        description: row.description || "",
+        internal: Boolean(row.internal),
+        image: row.image || "",
+        lastUsed: formatDate(row.lastUsed) || null,
+        defaultPriority: row.defaultPriority || 0
+      };
+
+      return ApiResponse.json(app);
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to update application");
     }
@@ -150,25 +235,27 @@ export class ApplicationHandlers {
   // DELETE /application/{id} - Delete an application
   async deleteApplication(userId: number, id: string): Promise<Response> {
     try {
+      const appId = parseInt(id);
+      
       // Check if application exists, is internal, and belongs to the user
-      const appCheck = await this.db.prepare(`
-        SELECT internal FROM applications
-        WHERE id = ? AND user_id = ?
-      `).bind(parseInt(id), userId).first();
+      const appCheck = await this.drizzle
+        .select({ internal: applications.internal })
+        .from(applications)
+        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`)
+        .get();
 
       if (!appCheck) {
         return ApiResponse.error("Not Found", 404, "Application not found");
       }
 
       // Prevent deletion of internal applications
-      if (toBoolean((appCheck as any).internal)) {
+      if (Boolean(appCheck.internal)) {
         return ApiResponse.error("Forbidden", 403, "Internal applications cannot be deleted");
       }
 
-      const result = await this.db.prepare(`
-        DELETE FROM applications
-        WHERE id = ? AND user_id = ?
-      `).bind(parseInt(id), userId).run();
+      const result = await this.drizzle
+        .delete(applications)
+        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`);
 
       if (result.meta.changes === 0) {
         return ApiResponse.error("Not Found", 404, "Application not found");
@@ -183,10 +270,14 @@ export class ApplicationHandlers {
   // POST /application/{id}/image - Upload an image for an application
   async uploadApplicationImage(userId: number, id: string, request: Request, env: any): Promise<Response> {
     try {
+      const appId = parseInt(id);
+      
       // Check if application exists and belongs to the user
-      const appResult = await this.db.prepare(`
-        SELECT id FROM applications WHERE id = ? AND user_id = ?
-      `).bind(parseInt(id), userId).first();
+      const appResult = await this.drizzle
+        .select({ id: applications.id })
+        .from(applications)
+        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`)
+        .get();
 
       if (!appResult) {
         return ApiResponse.error("Not Found", 404, "Application not found");
@@ -247,19 +338,42 @@ export class ApplicationHandlers {
 
       // Update application with image URL
       const imageUrl = `/api/v1/image/${filename}`;
-      const result = await this.db.prepare(`
-        UPDATE applications
-        SET image = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND user_id = ?
-        RETURNING id, user_id as userId, token, name, description, default_priority as defaultPriority,
-                  image, internal, last_used as lastUsed, created_at as createdAt, updated_at as updatedAt
-      `).bind(imageUrl, parseInt(id), userId).first();
+      const result = await this.drizzle
+        .update(applications)
+        .set({
+          image: imageUrl,
+          updatedAt: sql`CURRENT_TIMESTAMP`
+        })
+        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`)
+        .returning({
+          id: applications.id,
+          userId: applications.userId,
+          token: applications.token,
+          name: applications.name,
+          description: applications.description,
+          defaultPriority: applications.defaultPriority,
+          image: applications.image,
+          internal: applications.internal,
+          lastUsed: applications.lastUsed
+        });
 
-      if (!result) {
+      if (!result || result.length === 0) {
         return ApiResponse.error("Internal Server Error", 500, "Failed to update application with image");
       }
 
-      return ApiResponse.json(this.mapToApplication(result));
+      const row = result[0];
+      const app: Application = {
+        id: row.id,
+        token: row.token,
+        name: row.name,
+        description: row.description || "",
+        internal: Boolean(row.internal),
+        image: row.image || "",
+        lastUsed: formatDate(row.lastUsed) || null,
+        defaultPriority: row.defaultPriority || 0
+      };
+
+      return ApiResponse.json(app);
 
     } catch (error) {
       return ApiResponse.error("Upload failed", 500, error instanceof Error ? error.message : "Unknown error");
@@ -269,16 +383,20 @@ export class ApplicationHandlers {
   // DELETE /application/{id}/image - Delete an image of an application
   async deleteApplicationImage(userId: number, id: string, env: any): Promise<Response> {
     try {
+      const appId = parseInt(id);
+      
       // Get current image URL
-      const appResult = await this.db.prepare(`
-        SELECT image FROM applications WHERE id = ? AND user_id = ?
-      `).bind(parseInt(id), userId).first();
+      const appResult = await this.drizzle
+        .select({ image: applications.image })
+        .from(applications)
+        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`)
+        .get();
 
       if (!appResult) {
         return ApiResponse.error("Not Found", 404, "Application not found");
       }
 
-      const currentImage = (appResult as any).image;
+      const currentImage = appResult.image;
       if (!currentImage) {
         return ApiResponse.error("Not Found", 404, "No image to delete");
       }
@@ -292,11 +410,13 @@ export class ApplicationHandlers {
       }
 
       // Update application to remove image reference
-      await this.db.prepare(`
-        UPDATE applications
-        SET image = NULL, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND user_id = ?
-      `).bind(parseInt(id), userId).run();
+      await this.drizzle
+        .update(applications)
+        .set({
+          image: null,
+          updatedAt: sql`CURRENT_TIMESTAMP`
+        })
+        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`);
 
       return ApiResponse.json({});
 

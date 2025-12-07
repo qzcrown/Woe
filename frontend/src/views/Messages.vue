@@ -1,23 +1,30 @@
 <template>
   <Layout>
     <div class="messages">
-      <div class="page-header">
-        <h1 class="page-title">{{ $t('common.messages') }}</h1>
-        <div class="page-actions">
-          <button @click="refreshMessages" :disabled="loading" class="refresh-btn">
-            {{ loading ? $t('common.loading') : $t('common.refresh') }}
-          </button>
-          <button 
-            v-if="selectedMessages.length > 0" 
-            @click="deleteSelectedMessages" 
-            :disabled="deleting" 
-            class="delete-selected-btn"
-          >
-            <LoadingSpinner v-if="deleting" size="small" variant="dots" />
-            <span v-else>{{ $t('messages.deleteSelected', { count: selectedMessages.length }) }}</span>
-          </button>
-        </div>
-      </div>
+  <div class="page-header">
+    <h1 class="page-title">{{ $t('common.messages') }}</h1>
+    <div class="page-actions">
+      <button 
+        v-if="canSendNotification" 
+        @click="openSendModal" 
+        class="send-btn"
+      >
+        {{ $t('messages.sendNotification') }}
+      </button>
+      <button @click="refreshMessages" :disabled="loading" class="refresh-btn">
+        {{ loading ? $t('common.loading') : $t('common.refresh') }}
+      </button>
+      <button 
+        v-if="selectedMessages.length > 0" 
+        @click="deleteSelectedMessages" 
+        :disabled="deleting" 
+        class="delete-selected-btn"
+      >
+        <LoadingSpinner v-if="deleting" size="small" variant="dots" />
+        <span v-else>{{ $t('messages.deleteSelected', { count: selectedMessages.length }) }}</span>
+      </button>
+    </div>
+  </div>
 
       <div v-if="error" class="error-message">
         {{ error }}
@@ -122,6 +129,11 @@
         :last-connected="lastConnected"
         :reconnect="refreshMessages"
       />
+      <SendNotificationModal 
+        v-if="showSendModal"
+        @close="closeSendModal"
+        @submitted="handleMessageSent"
+      />
     </div>
   </Layout>
 </template>
@@ -135,15 +147,18 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import MessageFilters from '@/components/MessageFilters.vue'
 import ConnectionStatus from '@/components/ConnectionStatus.vue'
 import { useMessagesStore } from '@/stores/messages'
+import { useAuthStore } from '@/stores/auth'
+import SendNotificationModal from '@/components/SendNotificationModal.vue'
 import { applicationApi } from '@/services/api'
 import { wsService } from '@/services/websocket'
 import { ApiError } from '@/types'
 import { showError, showSuccess } from '@/utils/errorHandler'
-import type { Application } from '@/types'
+import type { Application, Message } from '@/types'
 
 const { t } = useI18n()
 
 const messagesStore = useMessagesStore()
+const authStore = useAuthStore()
 
 const loading = computed(() => messagesStore.loading)
 const loadingMore = computed(() => messagesStore.loadingMore)
@@ -304,6 +319,22 @@ onMounted(() => {
 onUnmounted(() => {
   wsService.offMessage(handleNewMessage)
 })
+
+const showSendModal = ref(false)
+const openSendModal = () => {
+  showSendModal.value = true
+}
+const closeSendModal = () => {
+  showSendModal.value = false
+}
+const handleMessageSent = (msg: Message) => {
+  messagesStore.addMessage(msg)
+  showSuccess(t('messages.sentSuccessfully'))
+  closeSendModal()
+}
+const canSendNotification = computed(() => {
+  return (authStore.user?.admin === true) || applications.value.length > 0
+})
 </script>
 
 <style scoped>
@@ -329,6 +360,20 @@ onUnmounted(() => {
 .page-actions {
   display: flex;
   gap: 1rem;
+}
+
+.send-btn {
+  padding: 0.5rem 1rem;
+  background-color: #10b981;
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.send-btn:hover {
+  background-color: #059669;
 }
 
 .refresh-btn {

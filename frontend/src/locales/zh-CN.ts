@@ -91,7 +91,7 @@ export default {
     title: '消息管理',
     searchPlaceholder: '搜索消息...',
     noMessages: '暂无消息',
-    priority: '优先级',
+    messagePriority: '优先级',
     application: '应用',
     date: '日期',
     content: '内容',
@@ -110,6 +110,26 @@ export default {
     noMoreMessages: '没有更多消息',
     loadingMessages: '正在加载消息...',
     emptyDescription: '当应用发送通知时，消息将显示在此处。'
+    , sendNotification: '发送通知'
+    , send: '发送'
+    , sentSuccessfully: '通知已发送'
+    , sendFailed: '发送失败'
+    , notificationType: '通知类型'
+    , targetApplication: '目标应用'
+    , selectApplicationPlaceholder: '请选择目标应用'
+    , titleLabel: '标题'
+    , titlePlaceholder: '请输入通知标题'
+    , contentPlaceholder: '请输入通知内容'
+    , validation: {
+      appRequired: '请选择目标应用',
+      titleRequired: '请输入标题',
+      contentRequired: '请输入内容'
+    },
+    priority: '优先级',
+    priorityLow: '低',
+    priorityNormal: '普通',
+    priorityHigh: '高',
+    priorityEmergency: '紧急'
   },
   applications: {
     title: '应用管理',

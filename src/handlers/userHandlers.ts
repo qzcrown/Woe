@@ -1,9 +1,12 @@
 import { User, UserWithPass } from "../types/index.ts";
 import { ApiResponse, toBoolean } from "../utils/response.ts";
+import { DrizzleDB } from "../drizzle/index.ts";
+import { users } from "../models/index.ts";
+import { eq, sql } from "drizzle-orm";
 
 // User Management API handlers for Woe - Gotify compatible
 export class UserHandlers {
-  constructor(private db: D1Database) {}
+  constructor(private drizzle: DrizzleDB) {}
 
   // Helper to map DB result to User type
   private mapToUser(row: any): User {
@@ -17,15 +20,23 @@ export class UserHandlers {
   // GET /user - Return all users
   async getAllUsers(): Promise<Response> {
     try {
-      const result = await this.db.prepare(`
-        SELECT id, name, admin
-        FROM users
-        WHERE disabled = 0
-        ORDER BY id
-      `).all();
+      const usersList = await this.drizzle
+        .select({
+          id: users.id,
+          name: users.name,
+          admin: users.admin
+        })
+        .from(users)
+        .where(eq(users.disabled, false))
+        .orderBy(users.id);
 
-      const users = result.results.map(row => this.mapToUser(row));
-      return ApiResponse.json(users);
+      const usersArray = usersList.map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        admin: toBoolean(row.admin)
+      }));
+
+      return ApiResponse.json(usersArray);
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to retrieve users");
     }
@@ -36,17 +47,31 @@ export class UserHandlers {
     try {
       const { hashPassword } = await import("../middleware/auth.ts");
       const hashed = await hashPassword(pass);
-      const result = await this.db.prepare(`
-        INSERT INTO users (name, pass, admin)
-        VALUES (?, ?, ?)
-        RETURNING id, name, admin
-      `).bind(name, hashed, admin ? 1 : 0).first();
+      
+      const result = await this.drizzle
+        .insert(users)
+        .values({
+          name,
+          pass: hashed,
+          admin
+        })
+        .returning({
+          id: users.id,
+          name: users.name,
+          admin: users.admin
+        });
 
-      if (!result) {
+      if (!result || result.length === 0) {
         return ApiResponse.error("User creation failed", 400, "Could not create user");
       }
 
-      return ApiResponse.json(this.mapToUser(result));
+      const newUser = {
+        id: result[0].id,
+        name: result[0].name,
+        admin: toBoolean(result[0].admin)
+      };
+
+      return ApiResponse.json(newUser);
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to create user");
     }
@@ -55,17 +80,29 @@ export class UserHandlers {
   // GET /user/{id} - Get a user by ID
   async getUser(id: string): Promise<Response> {
     try {
-      const result = await this.db.prepare(`
-        SELECT id, name, admin
-        FROM users
-        WHERE id = ? AND disabled = 0
-      `).bind(parseInt(id)).first();
+      const userId = parseInt(id);
+      
+      const result = await this.drizzle
+        .select({
+          id: users.id,
+          name: users.name,
+          admin: users.admin
+        })
+        .from(users)
+        .where(sql`${users.id} = ${userId} AND ${users.disabled} = 0`)
+        .get();
 
       if (!result) {
         return ApiResponse.error("Not Found", 404, "User not found");
       }
 
-      return ApiResponse.json(this.mapToUser(result));
+      const user = {
+        id: result.id,
+        name: result.name,
+        admin: toBoolean(result.admin)
+      };
+
+      return ApiResponse.json(user);
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to retrieve user");
     }
@@ -74,42 +111,46 @@ export class UserHandlers {
   // PUT /user/{id} - Update a user
   async updateUser(id: string, data: {name?: string; pass?: string; admin?: boolean}): Promise<Response> {
     try {
-      const updateFields = [];
-      const values = [];
+      const userId = parseInt(id);
+      const updateData: any = {};
 
       if (data.name) {
-        updateFields.push("name = ?");
-        values.push(data.name);
+        updateData.name = data.name;
       }
       if (data.pass) {
         const { hashPassword } = await import("../middleware/auth.ts");
         const hashed = await hashPassword(data.pass);
-        updateFields.push("pass = ?");
-        values.push(hashed);
+        updateData.pass = hashed;
       }
       if (data.admin !== undefined) {
-        updateFields.push("admin = ?");
-        values.push(data.admin ? 1 : 0);
+        updateData.admin = data.admin;
       }
 
-      if (updateFields.length === 0) {
+      if (Object.keys(updateData).length === 0) {
         return ApiResponse.error("Bad Request", 400, "No fields to update");
       }
 
-      values.push(parseInt(id));
+      const result = await this.drizzle
+        .update(users)
+        .set(updateData)
+        .where(eq(users.id, userId))
+        .returning({
+          id: users.id,
+          name: users.name,
+          admin: users.admin
+        });
 
-      const result = await this.db.prepare(`
-        UPDATE users
-        SET ${updateFields.join(", ")}
-        WHERE id = ?
-        RETURNING id, name, admin
-      `).bind(...values).first();
-
-      if (!result) {
+      if (!result || result.length === 0) {
         return ApiResponse.error("Not Found", 404, "User not found or update failed");
       }
 
-      return ApiResponse.json(this.mapToUser(result));
+      const updatedUser = {
+        id: result[0].id,
+        name: result[0].name,
+        admin: toBoolean(result[0].admin)
+      };
+
+      return ApiResponse.json(updatedUser);
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to update user");
     }
@@ -118,10 +159,11 @@ export class UserHandlers {
   // DELETE /user/{id} - Delete a user
   async deleteUser(id: string): Promise<Response> {
     try {
-      const result = await this.db.prepare(`
-        DELETE FROM users
-        WHERE id = ?
-      `).bind(parseInt(id)).run();
+      const userId = parseInt(id);
+      
+      const result = await this.drizzle
+        .delete(users)
+        .where(eq(users.id, userId));
 
       if (result.meta.changes === 0) {
         return ApiResponse.error("Not Found", 404, "User not found");
@@ -136,17 +178,27 @@ export class UserHandlers {
   // GET /current/user - Return the current user
   async getCurrentUser(userId: number): Promise<Response> {
     try {
-      const result = await this.db.prepare(`
-        SELECT id, name, admin
-        FROM users
-        WHERE id = ? AND disabled = 0
-      `).bind(userId).first();
+      const result = await this.drizzle
+        .select({
+          id: users.id,
+          name: users.name,
+          admin: users.admin
+        })
+        .from(users)
+        .where(sql`${users.id} = ${userId} AND ${users.disabled} = 0`)
+        .get();
 
       if (!result) {
         return ApiResponse.error("Not Found", 404, "User not found");
       }
 
-      return ApiResponse.json(this.mapToUser(result));
+      const user = {
+        id: result.id,
+        name: result.name,
+        admin: toBoolean(result.admin)
+      };
+
+      return ApiResponse.json(user);
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to retrieve current user");
     }
@@ -157,14 +209,18 @@ export class UserHandlers {
     try {
       const { hashPassword } = await import("../middleware/auth.ts");
       const hashed = await hashPassword(newPassword);
-      const result = await this.db.prepare(`
-        UPDATE users
-        SET pass = ?
-        WHERE id = ?
-        RETURNING id, name, admin
-      `).bind(hashed, userId).first();
+      
+      const result = await this.drizzle
+        .update(users)
+        .set({ pass: hashed })
+        .where(eq(users.id, userId))
+        .returning({
+          id: users.id,
+          name: users.name,
+          admin: users.admin
+        });
 
-      if (!result) {
+      if (!result || result.length === 0) {
         return ApiResponse.error("Not Found", 404, "User not found");
       }
 
@@ -178,18 +234,29 @@ export class UserHandlers {
   // Optional: Add method to enable/disable users (admin only)
   async setUserDisabled(id: string, disabled: boolean): Promise<Response> {
     try {
-      const result = await this.db.prepare(`
-        UPDATE users
-        SET disabled = ?
-        WHERE id = ?
-        RETURNING id, name, admin
-      `).bind(disabled ? 1 : 0, parseInt(id)).first();
+      const userId = parseInt(id);
+      
+      const result = await this.drizzle
+        .update(users)
+        .set({ disabled })
+        .where(eq(users.id, userId))
+        .returning({
+          id: users.id,
+          name: users.name,
+          admin: users.admin
+        });
 
-      if (!result) {
+      if (!result || result.length === 0) {
         return ApiResponse.error("Not Found", 404, "User not found");
       }
 
-      return ApiResponse.json(this.mapToUser(result));
+      const updatedUser = {
+        id: result[0].id,
+        name: result[0].name,
+        admin: toBoolean(result[0].admin)
+      };
+
+      return ApiResponse.json(updatedUser);
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to update user disabled status");
     }
