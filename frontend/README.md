@@ -1,44 +1,44 @@
-# Woe Frontend
+# Woe 前端
 
-A modern, feature-rich frontend for the Gotify server, built with Vue 3, TypeScript, and Tailwind CSS.
+基于 Vue 3、TypeScript 和 Scoped CSS 构建的现代化、功能丰富的 Gotify 服务器前端。
 
-## Features
+## 功能特性
 
-### Core Functionality
-- **Dashboard**: Overview of system status, recent messages, and statistics
-- **Messages**: Real-time message viewing with pagination, filtering, and batch operations
-- **Applications**: Manage applications with icon support and detailed views
-- **Clients**: Client management with token handling
-- **Users**: User management with role-based access control
-- **Plugins**: Complete plugin system with configuration and display support
+### 核心功能
+- **仪表板**: 系统状态概览、近期消息和统计信息
+- **消息管理**: 支持分页、过滤和批量操作的实时消息查看
+- **应用管理**: 支持图标上传和详细视图的应用管理
+- **客户端管理**: 包含令牌处理的客户端设备管理
+- **用户管理**: 基于角色的用户访问控制管理
+- **插件系统**: 完整的插件系统，支持配置和显示功能
 
-### Enhanced Features
-- **Real-time Updates**: WebSocket integration with connection status indicators
-- **Application Icons**: Upload and manage application icons
-- **Message Filtering**: Filter by application, priority, and search terms
-- **Batch Operations**: Select and delete multiple messages at once
-- **Plugin Management**: Enable/disable plugins and configure via YAML
-- **Responsive Design**: Mobile-friendly interface with adaptive layouts
-- **Error Handling**: Global error notification system with user-friendly messages
-- **Loading States**: Consistent loading indicators and skeleton screens
-- **Empty States**: Helpful empty state displays with action prompts
+### 增强功能
+- **实时更新**: WebSocket 集成，带有连接状态指示器
+- **应用图标**: 上传和管理应用图标
+- **消息过滤**: 按应用、优先级和搜索词进行过滤
+- **批量操作**: 一次性选择和删除多条消息
+- **插件管理**: 启用/禁用插件并通过 YAML 进行配置
+- **响应式设计**: 移动友好的界面，支持自适应布局
+- **错误处理**: 全局错误通知系统，提供用户友好的错误信息
+- **加载状态**: 一致的加载指示器和骨架屏幕
+- **空状态**: 有用的空状态显示，带有操作提示
 
-## Technical Stack
+## 技术栈
 
-- **Framework**: Vue 3 with Composition API
-- **Language**: TypeScript
-- **State Management**: Pinia
-- **Routing**: Vue Router
-- **HTTP Client**: Axios
-- **Build Tool**: Vite
-- **Testing**: Vitest
-- **Styling**: Scoped CSS with custom design system
+- **框架**: Vue 3 with Composition API
+- **语言**: TypeScript
+- **状态管理**: Pinia
+- **路由**: Vue Router
+- **HTTP 客户端**: Axios
+- **构建工具**: Vite
+- **测试**: Vitest
+- **样式**: Scoped CSS with custom design system
 
-## Project Structure
+## 项目结构
 
 ```
 src/
-├── components/          # Reusable UI components
+├── components/          # 可复用的 UI 组件
 │   ├── ApplicationIcon.vue
 │   ├── ConnectionStatus.vue
 │   ├── EmptyState.vue
@@ -46,18 +46,18 @@ src/
 │   ├── LoadingSpinner.vue
 │   ├── MessageFilters.vue
 │   └── Notification.vue
-├── services/           # API and external services
+├── services/           # API 和外部服务
 │   ├── api.ts
 │   ├── auth.ts
 │   └── websocket.ts
-├── stores/             # Pinia state management
+├── stores/             # Pinia 状态管理
 │   ├── auth.ts
 │   └── messages.ts
-├── types/              # TypeScript type definitions
+├── types/              # TypeScript 类型定义
 │   └── index.ts
-├── utils/              # Utility functions
+├── utils/              # 工具函数
 │   └── errorHandler.ts
-├── views/              # Page components
+├── views/              # 页面组件
 │   ├── ApplicationDetail.vue
 │   ├── Applications.vue
 │   ├── Clients.vue
@@ -74,88 +74,85 @@ src/
 └── main.ts
 ```
 
-## Getting Started
+## 快速开始
 
-### Prerequisites
-- Node.js 16+ 
-- npm or yarn
-- Gotify server instance
+### 前置要求
+- Node.js 16+
+- npm 或 yarn
+- Gotify 服务器实例
 
-### Installation
+### 安装步骤
 
-1. Clone the repository:
+1. 克隆仓库：
    ```bash
    git clone <repository-url>
    cd woe/frontend
    ```
 
-2. Install dependencies:
+2. 安装依赖：
    ```bash
    npm install
    ```
 
-3. Configure environment variables:
+3. 配置环境变量：
+
+   开发环境，复制开发环境文件：
    ```bash
-   cp .env.example .env
-   # Edit .env with your Gotify server URL
+   cp .env.development .env.local
+   # 编辑 .env.local 文件配置您的设置
    ```
 
-4. Start development server:
+   生产环境，使用：
+   ```bash
+   cp .env.production .env.local
+   # 编辑 .env.local 文件配置您的生产环境设置
+   ```
+
+4. 启动开发服务器：
    ```bash
    npm run dev
    ```
 
-5. Build for production:
+5. 构建生产版本：
    ```bash
    npm run build
    ```
 
-### Environment Variables
+### 环境变量
 
-- `VITE_API_BASE_URL`: Base URL for API requests (default: `/`)
-- `VITE_AUTH_ENCRYPTION_KEY`: Key for encrypting authentication data
+- `VITE_API_BASE_URL`: API 请求的基础 URL（默认: `/`）
+- `VITE_AUTH_ENCRYPTION_KEY`: 用于加密认证数据的密钥
 
-## API Integration
+## API 集成
 
-The frontend integrates with the Gotify server REST API:
+前端与 Gotify 服务器 REST API 集成：
 
-- Authentication via Basic Auth
-- Message management with pagination
-- Application and client management
-- Plugin configuration and display
-- Real-time updates via WebSocket
+- 通过 Basic Auth 进行身份验证
+- 支持分页的消息管理
+- 应用和客户端管理
+- 插件配置和显示
+- 通过 WebSocket 实现实时更新
 
-## Testing
+## 测试
 
-Run the test suite:
+测试基础设施计划在将来版本中添加。目前建议进行手动测试。
 
-```bash
-# Run unit tests
-npm run test
+## 浏览器支持
 
-# Run tests with coverage
-npm run test:coverage
+- Chrome（最新版本）
+- Firefox（最新版本）
+- Safari（最新版本）
+- Edge（最新版本）
 
-# Run tests in watch mode
-npm run test:watch
-```
+## 贡献指南
 
-## Browser Support
+1. Fork 本仓库
+2. 创建功能分支
+3. 进行您的更改
+4. 为新功能添加测试
+5. 确保所有测试通过
+6. 提交 Pull Request
 
-- Chrome (latest)
-- Firefox (latest)
-- Safari (latest)
-- Edge (latest)
+## 许可证
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License.
+本项目基于 MIT 许可证发布。

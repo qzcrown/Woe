@@ -376,22 +376,12 @@ curl -X POST https://your-domain.workers.dev/message \
 ## 文档
 
 ### API 文档
-- [API 概述](docs/api/README.md) - API 使用指南和快速入门
-- [认证机制](docs/api/authentication.md) - 详细的认证说明
-- [OpenAPI 规范](docs/api/openapi.yaml) - 完整的 API 规范
+- [API 规范](docs/api_spec.json) - 完整的 API JSON 规范
 
-### 端点文档
-- [系统端点](docs/api/endpoints/system.md) - 健康检查、版本信息、WebSocket
-- [用户管理](docs/api/endpoints/users.md) - 用户创建、更新、删除
-- [应用管理](docs/api/endpoints/applications.md) - 应用和令牌管理
-- [客户端管理](docs/api/endpoints/clients.md) - 客户端设备管理
-- [消息管理](docs/api/endpoints/messages.md) - 消息发送和接收
-- [插件管理](docs/api/endpoints/plugins.md) - 插件配置和管理
-- [WebSocket 流](docs/api/endpoints/websocket.md) - 实时消息推送
+详细 API 使用说明请参考 Gotify 官方文档，本项目兼容 Gotify v2.0.2 API。
 
 ### 开发文档
 - [部署指南](#部署指南) - 详细的部署说明（本文档内）
-- [开发计划](docs/gotify-cloudflare-worker-dev-plan.md) - 开发规划和设计
 
 ## 架构
 

@@ -376,22 +376,12 @@ curl -X POST https://your-domain.workers.dev/message \
 ## Documentation
 
 ### API Documentation
-- [API Overview](docs/api/README.md) - API usage guide and quick start
-- [Authentication Mechanism](docs/api/authentication.md) - Detailed authentication explanation
-- [OpenAPI Specification](docs/api/openapi.yaml) - Complete API specification
+- [API Specification](docs/api_spec.json) - Complete API JSON specification
 
-### Endpoint Documentation
-- [System Endpoints](docs/api/endpoints/system.md) - Health check, version information, WebSocket
-- [User Management](docs/api/endpoints/users.md) - User creation, update, deletion
-- [Application Management](docs/api/endpoints/applications.md) - Application and token management
-- [Client Management](docs/api/endpoints/clients.md) - Client device management
-- [Message Management](docs/api/endpoints/messages.md) - Message sending and receiving
-- [Plugin Management](docs/api/endpoints/plugins.md) - Plugin configuration and management
-- [WebSocket Stream](docs/api/endpoints/websocket.md) - Real-time message push
+For detailed API usage, please refer to the official Gotify documentation. This project is compatible with Gotify v2.0.2 API.
 
 ### Development Documentation
 - [Deployment Guide](#deployment-guide) - Detailed deployment instructions (within this document)
-- [Development Plan](docs/gotify-cloudflare-worker-dev-plan.md) - Development planning and design
 
 ## Architecture
 
