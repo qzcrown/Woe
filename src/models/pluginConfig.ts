@@ -7,6 +7,7 @@ export const pluginConfigs = sqliteTable('plugin_configs', {
   name: text('name').notNull(),
   token: text('token').notNull(),
   modulePath: text('module_path').notNull(),
+  icon: text('icon'),
   configYaml: text('config_yaml'),
   enabled: integer('enabled').notNull().default(1),
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),

@@ -2,7 +2,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { createDrizzle } from "../drizzle/index.ts";
 import { users, systemState } from "../models/index.ts";
 import { eq, count, sql } from "drizzle-orm";
-import { SchemaManager } from "./schemaManager.ts";
+import { MigrationRunner } from "./migrationRunner.ts";
 
 export interface InitializationResult {
   success: boolean;
@@ -74,9 +74,20 @@ export class InitService {
       .get();
     if (existing) return null;
 
+    const { hashPassword } = await import("../middleware/auth.ts");
+    const hashedassword = await hashPassword(password);
+
     const inserted = await this.drizzle
       .insert(users)
-      .values({ name: username, pass: password, admin: true, disabled: false, createdAt: sql`CURRENT_TIMESTAMP` })
+      .values({
+        name: username,
+        nickname: username,
+        email: 'needupdate@crownkin.space',
+        pass: hashedassword,
+        admin: true,
+        disabled: false,
+        createdAt: sql`CURRENT_TIMESTAMP`
+      })
       .returning({ id: users.id });
     return inserted && inserted.length > 0 ? inserted[0].id : null;
   }
@@ -88,8 +99,8 @@ export class InitService {
   }
 
   async ensureSchema(): Promise<void> {
-    const sm = new SchemaManager(this.db);
-    await sm.ensureUpToDate();
+    const migrationRunner = new MigrationRunner(this.db);
+    await migrationRunner.runPendingMigrations();
   }
 
   async validateDatabase(): Promise<boolean> {

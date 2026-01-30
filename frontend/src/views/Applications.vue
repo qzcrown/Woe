@@ -9,44 +9,45 @@
       <div v-if="loading" class="loading">{{ $t('applications.loadingApplications') }}</div>
 
       <div v-else class="applications-grid">
-        <router-link 
+        <div 
           v-for="app in applications" 
           :key="app.id" 
-          :to="`/applications/${app.id}`" 
           class="app-card"
         >
-          <div class="app-header">
-            <div class="app-icon-container">
-              <ApplicationIcon
-                :name="app.name"
-                :image="app.image"
-                :show-upload-overlay="true"
-                :show-delete-button="true"
-                @upload="(file) => uploadIcon(app.id, file)"
-                @delete="() => deleteIcon(app.id)"
-              />
+          <div class="app-clickable-area" @click="navigateToDetail(app.id)">
+            <div class="app-header">
+              <div class="app-icon-container" @click.stop>
+                <ApplicationIcon
+                  :name="app.name"
+                  :image="app.image"
+                  :show-upload-overlay="true"
+                  :show-delete-button="true"
+                  @upload="(file) => uploadIcon(app.id, file)"
+                  @delete="() => deleteIcon(app.id)"
+                />
+              </div>
+              <div class="app-title-container">
+                <h3>{{ app.name }}</h3>
+                <span class="app-priority priority-{{ app.defaultPriority }}">
+                  {{ $t('common.priority') }} {{ app.defaultPriority }}
+                </span>
+              </div>
             </div>
-            <div class="app-title-container">
-              <h3>{{ app.name }}</h3>
-              <span class="app-priority priority-{{ app.defaultPriority }}">
-                {{ $t('common.priority') }} {{ app.defaultPriority }}
-              </span>
+            <p class="app-description">{{ app.description || $t('applications.noDescription') }}</p>
+            <div class="app-info">
+              <p class="app-token">
+                <strong>{{ $t('common.token') }}:</strong>
+                <code>{{ app.token.substring(0, 8) }}...{{ app.token.substring(app.token.length - 4) }}</code>
+              </p>
+              <p class="app-last-ping">{{ $t('applications.lastPing') }}: {{ formatDate(app.lastUsed || '') }}</p>
             </div>
-          </div>
-          <p class="app-description">{{ app.description || $t('applications.noDescription') }}</p>
-          <div class="app-info">
-            <p class="app-token">
-              <strong>{{ $t('common.token') }}:</strong>
-              <code>{{ app.token.substring(0, 8) }}...{{ app.token.substring(app.token.length - 4) }}</code>
-            </p>
-            <p class="app-last-ping">{{ $t('applications.lastPing') }}: {{ formatDate(app.lastUsed || '') }}</p>
           </div>
           <div class="app-actions">
             <button @click="copyToken(app.token)" class="copy-btn">{{ $t('applications.copyToken') }}</button>
             <button @click="editApplication(app)" class="edit-btn">{{ $t('common.edit') }}</button>
             <button @click="deleteApplication(app.id)" class="delete-btn">{{ $t('common.delete') }}</button>
           </div>
-        </router-link>
+        </div>
       </div>
 
       <div v-if="!loading && applications.length === 0" class="empty-state">
@@ -70,6 +71,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Layout from '@/components/Layout.vue'
 import ApplicationIcon from '@/components/ApplicationIcon.vue'
@@ -77,9 +79,12 @@ import CreateApplicationModal from '@/components/CreateApplicationModal.vue'
 import EditApplicationModal from '@/components/EditApplicationModal.vue'
 import { applicationApi } from '@/services/api'
 import { showSuccess, showError } from '@/utils/errorHandler'
+import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import type { Application } from '@/types'
 
 const { t } = useI18n()
+const router = useRouter()
+const { confirm: confirmDialog } = useConfirmDialog()
 
 const applications = ref<Application[]>([])
 const loading = ref(true)
@@ -90,6 +95,10 @@ const editingApplication = ref<Application | null>(null)
 const formatDate = (dateString: string) => {
   if (!dateString) return t('common.never')
   return new Date(dateString).toLocaleString()
+}
+
+const navigateToDetail = (appId: number) => {
+  router.push(`/applications/${appId}`)
 }
 
 const loadApplications = async () => {
@@ -124,7 +133,15 @@ const editApplication = (app: Application) => {
 }
 
 const deleteApplication = async (id: number) => {
-  if (confirm(t('applications.deleteConfirm'))) {
+  const confirmed = await confirmDialog({
+    title: t('common.confirmDialog.title'),
+    message: t('applications.deleteConfirm'),
+    confirmText: t('common.confirmDialog.confirmButton'),
+    cancelText: t('common.confirmDialog.cancelButton'),
+    type: 'danger'
+  })
+  
+  if (confirmed) {
     try {
       await applicationApi.deleteApplication(id)
       showSuccess(t('applications.deleteSuccess'))
@@ -215,14 +232,20 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  text-decoration: none;
-  color: inherit;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .app-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.app-clickable-area {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  cursor: pointer;
+  flex: 1;
 }
 
 .app-header {

@@ -15,15 +15,41 @@
 
       <div v-else-if="plugin" class="plugin-content">
         <div class="plugin-header">
-          <div class="plugin-icon-large">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M12 2L2 7l10 5 10-5-10 5z"></path>
-              <path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path>
-            </svg>
-          </div>
-          
+          <PluginIcon
+            :name="plugin.name"
+            :icon="plugin.icon"
+            size="large"
+            :show-upload-overlay="true"
+            :show-delete-button="true"
+            :uploading="uploadingIcon"
+            @upload="uploadIcon"
+            @delete="deleteIcon"
+          />
+
           <div class="plugin-info">
-            <h1 class="plugin-name">{{ plugin.name }}</h1>
+            <div v-if="!editingName" class="plugin-name-display">
+              <h1 class="plugin-name">{{ plugin.name }}</h1>
+              <button @click="startEditingName" class="edit-name-btn" :title="$t('common.edit')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+              </button>
+            </div>
+            <div v-else class="plugin-name-edit">
+              <input
+                v-model="editedName"
+                @keyup.enter="saveName"
+                @keyup.esc="cancelEditName"
+                class="name-input"
+                ref="nameInput"
+              />
+              <button @click="saveName" :disabled="!editedName || savingName" class="save-btn">
+                <LoadingSpinner v-if="savingName" size="small" variant="dots" />
+                <span v-else>{{ $t('common.save') }}</span>
+              </button>
+              <button @click="cancelEditName" class="cancel-btn">{{ $t('common.cancel') }}</button>
+            </div>
             <div class="plugin-status" :class="{ 'status-enabled': plugin.enabled }">
               <span class="status-indicator"></span>
               {{ plugin.enabled ? 'Enabled' : 'Disabled' }}
@@ -109,10 +135,10 @@
             </div>
             
             <div v-else-if="editMode" class="config-editor">
-              <textarea 
-                v-model="configText" 
+              <textarea
+                v-model="configText"
                 class="config-textarea"
-                placeholder="Enter YAML configuration..."
+                :placeholder="configExample || 'Enter YAML configuration...'"
                 spellcheck="false"
               ></textarea>
             </div>
@@ -164,10 +190,19 @@
                 <p>No logs.</p>
               </div>
               <ul v-else>
+                <li class="log-header">
+                  <span class="log-time">Time</span>
+                  <span class="log-event">Event</span>
+                  <span class="log-status">Status</span>
+                  <span class="log-duration">Duration</span>
+                  <span class="log-error">Error</span>
+                </li>
                 <li v-for="item in logs" :key="item.id" class="log-item">
                   <span class="log-time">{{ item.createdAt }}</span>
                   <span class="log-event">{{ item.event }}</span>
-                  <span class="log-status" :class="{'ok': item.status === 'ok', 'error': item.status !== 'ok'}">{{ item.status }}</span>
+                  <span class="log-status" :class="{'ok': item.status == 1 || item.status == 'ok', 'error': item.status == 0 || item.status == 'error'}">
+                    {{ item.status == 1 || item.status == 'ok' ? 'Success' : 'Failure' }}
+                  </span>
                   <span class="log-duration">{{ item.durationMs }} ms</span>
                   <span v-if="item.error" class="log-error">{{ item.error }}</span>
                 </li>
@@ -181,14 +216,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import Layout from '@/components/Layout.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import PluginIcon from '@/components/PluginIcon.vue'
 import { pluginApi } from '@/services/api'
 import { showSuccess, showError } from '@/utils/errorHandler'
 import type { Plugin } from '@/types'
 
+const { t } = useI18n()
 const route = useRoute()
 
 const plugin = ref<Plugin | null>(null)
@@ -202,6 +240,15 @@ const savingConfig = ref(false)
 const displayContent = ref<string>('')
 const loadingDisplay = ref(false)
 const logs = ref<any[]>([])
+
+// Name editing state
+const editingName = ref(false)
+const editedName = ref('')
+const savingName = ref(false)
+const nameInput = ref<HTMLInputElement>()
+
+// Icon upload state
+const uploadingIcon = ref(false)
 const loadingLogs = ref(false)
 
 const pluginId = computed(() => {
@@ -210,6 +257,10 @@ const pluginId = computed(() => {
 
 const hasDisplay = computed(() => {
   return plugin.value?.capabilities.includes('displayer')
+})
+
+const configExample = computed(() => {
+  return plugin.value?.configExample || ''
 })
 
 const loadPlugin = async () => {
@@ -304,9 +355,9 @@ const togglePlugin = async () => {
 
 const saveConfig = async () => {
   if (!plugin.value) return
-  
+
   savingConfig.value = true
-  
+
   try {
     await pluginApi.updateConfig(pluginId.value, configText.value)
     config.value = configText.value
@@ -316,6 +367,69 @@ const saveConfig = async () => {
     showError(err, 'Failed to save configuration')
   } finally {
     savingConfig.value = false
+  }
+}
+
+// Name editing methods
+const startEditingName = () => {
+  if (plugin.value) {
+    editedName.value = plugin.value.name
+    editingName.value = true
+    nextTick(() => {
+      nameInput.value?.focus()
+    })
+  }
+}
+
+const saveName = async () => {
+  if (!editedName.value || !plugin.value) return
+
+  savingName.value = true
+  try {
+    await pluginApi.updateName(pluginId.value, editedName.value)
+    editingName.value = false
+    showSuccess(t('plugins.nameUpdated'))
+    // Reload plugin data to get updated name
+    await loadPlugin()
+  } catch (err: any) {
+    showError(err, t('plugins.nameUpdateError'))
+  } finally {
+    savingName.value = false
+  }
+}
+
+const cancelEditName = () => {
+  editingName.value = false
+  editedName.value = ''
+}
+
+// Icon upload methods
+const uploadIcon = async (file: File) => {
+  if (!plugin.value) return
+
+  uploadingIcon.value = true
+  try {
+    await pluginApi.uploadImage(pluginId.value, file)
+    showSuccess(t('plugins.iconUploaded'))
+    // Reload plugin data to get updated icon
+    await loadPlugin()
+  } catch (err: any) {
+    showError(err, t('plugins.iconUploadError'))
+  } finally {
+    uploadingIcon.value = false
+  }
+}
+
+const deleteIcon = async () => {
+  if (!plugin.value) return
+
+  try {
+    await pluginApi.deleteImage(pluginId.value)
+    showSuccess(t('plugins.iconDeleted'))
+    // Reload plugin data to get updated icon
+    await loadPlugin()
+  } catch (err: any) {
+    showError(err, t('plugins.iconDeleteError'))
   }
 }
 
@@ -393,14 +507,6 @@ onMounted(() => {
 }
 
 .plugin-icon-large {
-  width: 96px;
-  height: 96px;
-  background-color: #f3f4f6;
-  border-radius: 0.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #6b7280;
   flex-shrink: 0;
 }
 
@@ -411,11 +517,97 @@ onMounted(() => {
   gap: 1rem;
 }
 
+.plugin-name-display {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .plugin-name {
   font-size: 1.875rem;
   font-weight: 700;
   color: #1f2937;
   margin: 0;
+}
+
+.edit-name-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  color: #6b7280;
+  transition: all 0.2s;
+}
+
+.edit-name-btn:hover {
+  background: #f3f4f6;
+  color: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.plugin-name-edit {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.name-input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1f2937;
+  min-width: 200px;
+}
+
+.name-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.save-btn,
+.cancel-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.save-btn {
+  background-color: #10b981;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.save-btn:hover:not(:disabled) {
+  background-color: #059669;
+}
+
+.save-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.cancel-btn {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.cancel-btn:hover {
+  background-color: #e5e7eb;
 }
 
 .plugin-status {
@@ -533,6 +725,19 @@ onMounted(() => {
   list-style: none;
   padding: 0;
 }
+
+.log-header {
+  display: grid;
+  grid-template-columns: 180px 160px 100px 100px 1fr;
+  gap: 8px;
+  padding: 8px 16px;
+  background-color: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+  border-bottom: 2px solid #e5e7eb;
+  border-top: none;
+}
+
 .log-item {
   display: grid;
   grid-template-columns: 180px 160px 100px 100px 1fr;
@@ -540,6 +745,7 @@ onMounted(() => {
   padding: 8px 16px;
   border-top: 1px solid #e5e7eb;
 }
+
 .log-status.ok { color: #10b981; }
 .log-status.error { color: #ef4444; }
 

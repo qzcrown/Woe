@@ -10,7 +10,7 @@
     "strict": true,
     "alwaysStrict": true,
     "preserveConstEnums": true,
-    "types": ["@cloudflare/workers-types"],
+    "types": ["@cloudflare/workers-types", "jest", "node"],
     "lib": ["ES2022"],
     "skipLibCheck": true,
     "noEmit": true,

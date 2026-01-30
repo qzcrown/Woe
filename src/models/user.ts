@@ -7,6 +7,11 @@ export const users = sqliteTable('users', {
   pass: text('pass').notNull(),
   admin: integer('admin', { mode: 'boolean' }).notNull().default(false),
   disabled: integer('disabled', { mode: 'boolean' }).notNull().default(false),
+  // User profile fields
+  nickname: text('nickname').notNull(),
+  email: text('email').notNull(),
+  avatar: text('avatar'),
+  description: text('description'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`)
 });
 

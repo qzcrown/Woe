@@ -2,14 +2,14 @@
   <Layout>
     <div class="application-detail">
       <div v-if="loading" class="loading-container">
-        <LoadingSpinner text="Loading application details..." />
+        <LoadingSpinner :text="t('applicationDetail.loading')" />
       </div>
 
       <div v-else-if="error" class="error-container">
         <div class="error-message">
-          <h3>Error loading application</h3>
+          <h3>{{ t('applicationDetail.errorTitle') }}</h3>
           <p>{{ error }}</p>
-          <button @click="loadApplication" class="retry-btn">Retry</button>
+          <button @click="loadApplication" class="retry-btn">{{ t('applicationDetail.retry') }}</button>
         </div>
       </div>
 
@@ -29,36 +29,36 @@
           
           <div class="app-info">
             <h1 class="app-name">{{ application.name }}</h1>
-            <p class="app-description">{{ application.description || 'No description' }}</p>
+            <p class="app-description">{{ application.description || t('applicationDetail.noDescription') }}</p>
             
             <div class="app-meta">
               <div class="meta-item">
-                <span class="meta-label">Application ID:</span>
+                <span class="meta-label">{{ t('applicationDetail.appId') }}</span>
                 <span class="meta-value">{{ application.id }}</span>
               </div>
               
               <div class="meta-item">
-                <span class="meta-label">Default Priority:</span>
+                <span class="meta-label">{{ t('applicationDetail.defaultPriority') }}</span>
                 <span class="meta-value priority-badge priority-{{ application.defaultPriority }}">
                   {{ getPriorityLabel(application.defaultPriority) }}
                 </span>
               </div>
               
               <div class="meta-item">
-                <span class="meta-label">Last Used:</span>
+                <span class="meta-label">{{ t('applicationDetail.lastUsed') }}</span>
                 <span class="meta-value">{{ formatDate(application.lastUsed || '') }}</span>
               </div>
               
               <div class="meta-item">
-                <span class="meta-label">Internal:</span>
-                <span class="meta-value">{{ application.internal ? 'Yes' : 'No' }}</span>
+                <span class="meta-label">{{ t('applicationDetail.internal') }}</span>
+                <span class="meta-value">{{ application.internal ? t('common.yes') : t('common.no') }}</span>
               </div>
             </div>
             
             <div class="app-actions">
-              <button @click="showEditModal = true" class="edit-btn">Edit Application</button>
-              <button @click="copyToken" class="copy-btn">Copy Token</button>
-              <button @click="confirmDelete" class="delete-btn">Delete Application</button>
+              <button @click="showEditModal = true" class="edit-btn">{{ t('applicationDetail.editApplication') }}</button>
+              <button @click="copyToken" class="copy-btn">{{ t('applicationDetail.copyToken') }}</button>
+              <button @click="confirmDelete" class="delete-btn">{{ t('applicationDetail.deleteApplication') }}</button>
             </div>
           </div>
         </div>
@@ -66,7 +66,7 @@
         <div class="application-sections">
           <!-- Token Section -->
           <div class="section">
-            <h2 class="section-title">Application Token</h2>
+            <h2 class="section-title">{{ t('applicationDetail.tokenTitle') }}</h2>
             <div class="token-container">
               <div class="token-display">
                 <code :class="{ 'token-hidden': !tokenVisible }">
@@ -85,28 +85,28 @@
               </button>
             </div>
             <p class="token-description">
-              Use this token to send messages to this application via the REST API.
+              {{ t('applicationDetail.tokenDescription') }}
             </p>
           </div>
 
           <!-- Messages Section -->
           <div class="section">
             <div class="section-header">
-              <h2 class="section-title">Recent Messages</h2>
+              <h2 class="section-title">{{ t('applicationDetail.recentMessages') }}</h2>
               <router-link :to="`/messages?appId=${application.id}`" class="view-all-btn">
-                View All Messages
+                {{ t('applicationDetail.viewAllMessages') }}
               </router-link>
             </div>
             
             <div v-if="messagesLoading" class="loading-container">
-              <LoadingSpinner text="Loading messages..." />
+              <LoadingSpinner :text="t('applicationDetail.loadingMessages')" />
             </div>
             
             <div v-else-if="messages.length === 0" class="empty-messages">
               <EmptyState
                 type="messages"
-                title="No messages yet"
-                description="Messages sent to this application will appear here."
+                :title="t('applicationDetail.noMessagesTitle')"
+                :description="t('applicationDetail.noMessagesDescription')"
                 size="small"
               />
             </div>
@@ -114,7 +114,7 @@
             <div v-else class="messages-list">
               <div v-for="message in messages" :key="message.id" class="message-item">
                 <div class="message-header">
-                  <h4 class="message-title">{{ message.title || 'No Title' }}</h4>
+                  <h4 class="message-title">{{ message.title || t('applicationDetail.noTitle') }}</h4>
                   <span class="message-time">{{ formatTime(message.date) }}</span>
                 </div>
                 <p class="message-content">{{ message.message }}</p>
@@ -130,7 +130,7 @@
                   class="load-more-btn"
                 >
                   <LoadingSpinner v-if="loadingMoreMessages" size="small" variant="dots" />
-                  <span v-else>Load More</span>
+                  <span v-else>{{ t('applicationDetail.loadMore') }}</span>
                 </button>
               </div>
             </div>
@@ -152,6 +152,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import Layout from '@/components/Layout.vue'
 import ApplicationIcon from '@/components/ApplicationIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -159,10 +160,13 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import EditApplicationModal from '@/components/EditApplicationModal.vue'
 import { applicationApi } from '@/services/api'
 import { showSuccess, showError } from '@/utils/errorHandler'
+import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import type { Application, Message, Paging } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
+const { confirm: confirmDialog } = useConfirmDialog()
 
 const application = ref<Application | null>(null)
 const loading = ref(true)
@@ -185,8 +189,13 @@ const appId = computed(() => {
   return Number(route.params.id)
 })
 
+/**
+ * 格式化日期
+ * @param dateString - 日期字符串
+ * @returns 格式化后的日期文本
+ */
 const formatDate = (dateString: string) => {
-  if (!dateString) return 'Never'
+  if (!dateString) return t('common.never')
   return new Date(dateString).toLocaleString()
 }
 
@@ -194,12 +203,20 @@ const formatTime = (dateString: string) => {
   return new Date(dateString).toLocaleString()
 }
 
+/**
+ * 获取优先级标签
+ * @param priority - 优先级数值
+ * @returns 优先级标签文本
+ */
 const getPriorityLabel = (priority?: number) => {
-  if (priority === undefined || priority === null) return 'Normal'
-  const labels = ['Low', 'Normal', 'High', 'Emergency']
-  return labels[Math.min(priority, 3)] || 'Normal'
+  if (priority === undefined || priority === null) return t('common.priorityNormal')
+  const labels = [t('common.priorityLow'), t('common.priorityNormal'), t('common.priorityHigh'), t('common.priorityEmergency')]
+  return labels[Math.min(priority, 3)] || t('common.priorityNormal')
 }
 
+/**
+ * 加载应用详情
+ */
 const loadApplication = async () => {
   loading.value = true
   error.value = null
@@ -210,13 +227,16 @@ const loadApplication = async () => {
     // Load initial messages after app is loaded
     loadMessages()
   } catch (err: any) {
-    error.value = err.errorDescription || 'Failed to load application'
-    showError(err, 'Failed to load application')
+    error.value = err.errorDescription || t('applicationDetail.loadError')
+    showError(err, t('applicationDetail.loadError'))
   } finally {
     loading.value = false
   }
 }
 
+/**
+ * 加载消息列表
+ */
 const loadMessages = async () => {
   messagesLoading.value = true
   
@@ -226,12 +246,15 @@ const loadMessages = async () => {
     messagePaging.value = response.data.paging
     hasMoreMessages.value = !!response.data.paging.next
   } catch (err: any) {
-    showError(err, 'Failed to load messages')
+    showError(err, t('applicationDetail.loadMessagesError'))
   } finally {
     messagesLoading.value = false
   }
 }
 
+/**
+ * 加载更多消息
+ */
 const loadMoreMessages = async () => {
   if (!hasMoreMessages.value || loadingMoreMessages.value) return
   
@@ -251,7 +274,7 @@ const loadMoreMessages = async () => {
     messagePaging.value = response.data.paging
     hasMoreMessages.value = !!response.data.paging.next
   } catch (err: any) {
-    showError(err, 'Failed to load more messages')
+    showError(err, t('applicationDetail.loadMoreMessagesError'))
   } finally {
     loadingMoreMessages.value = false
   }
@@ -261,36 +284,46 @@ const toggleTokenVisibility = () => {
   tokenVisible.value = !tokenVisible.value
 }
 
+/**
+ * 复制令牌到剪贴板
+ */
 const copyToken = async () => {
   if (!application.value) return
   
   try {
     await navigator.clipboard.writeText(application.value.token)
-    showSuccess('Token copied to clipboard!')
+    showSuccess(t('applications.tokenCopied'))
   } catch (err) {
-    showError(err as Error, 'Failed to copy token')
+    showError(err as Error, t('applications.copyTokenError'))
   }
 }
 
+/**
+ * 上传应用图标
+ * @param file - 图片文件
+ */
 const uploadIcon = async (file: File) => {
   if (!application.value) return
   
   try {
     await applicationApi.uploadApplicationImage(application.value.id, file)
-    showSuccess('Icon uploaded successfully!')
+    showSuccess(t('applications.iconUploaded'))
     // Reload application to get updated image
     await loadApplication()
   } catch (err: any) {
-    showError(err, 'Failed to upload icon')
+    showError(err, t('applications.uploadIconError'))
   }
 }
 
+/**
+ * 删除应用图标
+ */
 const deleteIcon = async () => {
   if (!application.value) return
   
   try {
     await applicationApi.deleteApplicationImage(application.value.id)
-    showSuccess('Icon deleted successfully!')
+    showSuccess(t('applications.iconDeleted'))
     // Reload application to update UI
     await loadApplication()
   } catch (err: any) {
@@ -303,23 +336,34 @@ const handleApplicationUpdated = () => {
   loadApplication()
 }
 
-const confirmDelete = () => {
+const confirmDelete = async () => {
   if (!application.value) return
   
-  if (confirm(`Are you sure you want to delete "${application.value.name}"? This action cannot be undone.`)) {
+  const confirmed = await confirmDialog({
+    title: t('common.confirmDialog.title'),
+    message: t('applications.deleteConfirmWithName', { name: application.value.name }),
+    confirmText: t('common.delete'),
+    cancelText: t('common.cancel'),
+    type: 'danger'
+  })
+  
+  if (confirmed) {
     deleteApplication()
   }
 }
 
+/**
+ * 删除应用
+ */
 const deleteApplication = async () => {
   if (!application.value) return
   
   try {
     await applicationApi.deleteApplication(application.value.id)
-    showSuccess('Application deleted successfully!')
+    showSuccess(t('applications.deleteSuccess'))
     router.push('/applications')
   } catch (err: any) {
-    showError(err, 'Failed to delete application')
+    showError(err, t('applications.deleteError'))
   }
 }
 

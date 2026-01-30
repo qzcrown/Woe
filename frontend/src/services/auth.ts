@@ -50,6 +50,9 @@ const ENDPOINT_AUTH_MAP: Record<string, { strategy: AuthStrategy; tokenType?: 'c
   'GET:/user/{id}': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
   'POST:/user/{id}': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
   'DELETE:/user/{id}': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
+  'GET:/user/{id}/applications': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
+  'GET:/user/{id}/clients': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
+  'GET:/user/{id}/plugins': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
   'GET:/current/user': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
   'POST:/current/user/password': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
 

@@ -63,12 +63,17 @@ export class Authenticator {
         return false;
       }
 
+      // 哈希密码
+      const hashedPassword = await hashPassword(defaultPassword);
+
       // 创建默认管理员用户
       const result = await this.drizzle
         .insert(users)
         .values({
           name: defaultUsername,
-          pass: defaultPassword,
+          nickname: defaultUsername,
+          email: 'needupdate@crownkin.space',
+          pass: hashedPassword,
           admin: true,
           createdAt: new Date().toISOString()
         });
@@ -120,7 +125,8 @@ export class Authenticator {
       if (!credentials) return null;
 
       const { username, password } = credentials;
-
+      
+      // DEFAULT_ADMIN_USER 和 DEFAULT_ADMIN_PASSWORD 无法用于认证，仅用于触发初始化
       if (env.DEFAULT_ADMIN_USER && env.DEFAULT_ADMIN_PASSWORD && username === env.DEFAULT_ADMIN_USER && password === env.DEFAULT_ADMIN_PASSWORD) {
         const { InitService } = await import("../services/initService.ts");
         const initService = new InitService(this.drizzle.$client);
@@ -188,7 +194,7 @@ export class Authenticator {
           const userResult = await this.drizzle
             .select({ admin: users.admin })
             .from(users)
-            .where(eq(users.id, result.userId))
+            .where(and(eq(users.id, result.userId), eq(users.disabled, false)))
             .get();
 
           if (userResult) {
@@ -217,7 +223,7 @@ export class Authenticator {
           const userResult = await this.drizzle
             .select({ admin: users.admin })
             .from(users)
-            .where(eq(users.id, result.userId))
+            .where(and(eq(users.id, result.userId), eq(users.disabled, false)))
             .get();
 
           if (userResult) {
@@ -257,28 +263,8 @@ export class Authenticator {
     return `$sha256$${saltHex}$${hashHex}`;
   }
 
-  private async verifyPassword(storedPassword: string, inputPassword: string): Promise<boolean> {
-    // 检查是否为哈希格式
-    if (storedPassword.startsWith('$sha256$')) {
-      // 解析哈希格式: $sha256$salt$hash
-      const parts = storedPassword.split('$');
-      if (parts.length !== 4) return false;
-
-      const saltHex = parts[2];
-      const storedHash = parts[3];
-
-      // 计算输入密码的哈希
-      const encoder = new TextEncoder();
-      const data = encoder.encode(inputPassword + saltHex);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const inputHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-      return inputHash === storedHash;
-    } else {
-      // 明文密码（向后兼容）
-      return storedPassword === inputPassword;
-    }
+  async verifyPassword(storedPassword: string, inputPassword: string): Promise<boolean> {
+    return verifyPassword(storedPassword, inputPassword);
   }
 
   hasPermission(tokenInfo: TokenInfo, resourceType: string, resourceUserId?: number): boolean {
@@ -294,9 +280,13 @@ export class Authenticator {
 export function generateToken(type: "app" | "client"): string {
   const prefix = type === "app" ? "A" : "C";
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+  // 使用crypto API 生成随机字节以提升安全性
+  const randomBytes = crypto.getRandomValues(new Uint8Array(20));
   let randomPart = "";
+
   for (let i = 0; i < 10; i++) {
-    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+    randomPart += chars.charAt(randomBytes[i] % chars.length);
   }
   return prefix + randomPart;
 }
@@ -310,4 +300,29 @@ export async function hashPassword(password: string): Promise<string> {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   return `$sha256$${saltHex}$${hashHex}`;
+}
+
+// Export verifyPassword function for use in other modules
+export async function verifyPassword(storedPassword: string, inputPassword: string): Promise<boolean> {
+  // 检查是否为哈希格式
+  if (storedPassword.startsWith('$sha256$')) {
+    // 解析哈希格式: $sha256$salt$hash
+    const parts = storedPassword.split('$');
+    if (parts.length !== 4) return false;
+
+    const saltHex = parts[2];
+    const storedHash = parts[3];
+
+    // 计算输入密码的哈希
+    const encoder = new TextEncoder();
+    const data = encoder.encode(inputPassword + saltHex);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const inputHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+    return inputHash === storedHash;
+  } else {
+    console.warn("Detected plaintext or unsupported hash password in database - this is invalid/insecure and deprecated");
+    return false;
+  }
 }

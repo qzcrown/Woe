@@ -27,5 +27,6 @@ export interface ExecutablePlugin {
   onApplicationCreate?(ctx: PluginContext): Promise<void> | void
   onClientCreate?(ctx: PluginContext): Promise<void> | void
   renderDisplay?(ctx: PluginContext): Promise<string> | string
+  configExample?: string
 }
 

@@ -44,7 +44,7 @@
           </div>
         </div>
 
-        <div class="stat-card">
+        <div v-if="authStore.user?.admin" class="stat-card">
           <div class="stat-icon">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
@@ -115,16 +115,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Layout from '@/components/Layout.vue'
 import { useMessagesStore } from '@/stores/messages'
-import { systemApi } from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
+import { systemApi, applicationApi, clientApi, userApi } from '@/services/api'
 import { wsService } from '@/services/websocket'
 
 const { t } = useI18n()
 
 const messagesStore = useMessagesStore()
+const authStore = useAuthStore()
 
 const stats = ref({
   messages: 0,
@@ -135,13 +137,11 @@ const stats = ref({
 
 const systemStatus = ref<any>({})
 const systemVersion = ref<any>({})
+const wsConnected = ref(false)
+let statusPollingInterval: number | null = null
 
 const recentMessages = computed(() => {
   return messagesStore.messages.slice(0, 5)
-})
-
-const wsConnected = computed(() => {
-  return wsService.isConnected()
 })
 
 const formatTime = (dateString: string) => {
@@ -166,28 +166,74 @@ const getPriorityLabel = (priority?: number) => {
 
 const loadDashboardData = async () => {
   try {
-    // Load system info
-    const [healthRes, versionRes] = await Promise.all([
-      systemApi.getHealth(),
-      systemApi.getVersion()
+    // 独立获取系统健康状态和版本信息，确保不被其他请求干扰
+    await fetchSystemStatus()
+
+    systemApi.getVersion()
+      .then(res => {
+        systemVersion.value = res.data
+      })
+      .catch(err => console.error('Error loading version info:', err))
+
+    // 并行获取其他统计数据，但使用 Promise.allSettled 避免单个失败导致整体加载中断
+    const results = await Promise.allSettled([
+      applicationApi.getApplications(),
+      clientApi.getClients(),
+      userApi.getUsers()
     ])
 
-    systemStatus.value = healthRes.data
-    systemVersion.value = versionRes.data
+    const [appsRes, clientsRes, usersRes] = results
 
-    // Load messages
-    await messagesStore.fetchMessages({ limit: 20 })
+    if (appsRes.status === 'fulfilled') {
+      stats.value.applications = appsRes.value.data?.length || 0
+    }
+    
+    if (clientsRes.status === 'fulfilled') {
+      stats.value.clients = clientsRes.value.data?.length || 0
+    }
 
-    // Update stats
-    stats.value.messages = messagesStore.messages.length
+    if (usersRes.status === 'fulfilled') {
+      stats.value.users = usersRes.value.data?.length || 0
+    }
+
+    // 独立加载消息列表
+    try {
+      await messagesStore.fetchMessages({ limit: 20 })
+      stats.value.messages = messagesStore.messages.length
+    } catch (error) {
+      console.error('Error loading recent messages:', error)
+    }
 
   } catch (error) {
     console.error('Error loading dashboard data:', error)
   }
 }
 
+const fetchSystemStatus = async () => {
+  try {
+    const res = await systemApi.getHealth()
+    systemStatus.value = res.data
+  } catch (err) {
+    console.error('Error loading health status:', err)
+  }
+}
+
+const handleWsStateChange = (state: 'disconnected' | 'connecting' | 'connected') => {
+  wsConnected.value = state === 'connected'
+}
+
 onMounted(() => {
   loadDashboardData()
+  wsService.onStateChange(handleWsStateChange)
+  // 每 30 秒轮询一次系统健康状态
+  statusPollingInterval = window.setInterval(fetchSystemStatus, 30000)
+})
+
+onUnmounted(() => {
+  wsService.offStateChange(handleWsStateChange)
+  if (statusPollingInterval) {
+    clearInterval(statusPollingInterval)
+  }
 })
 </script>
 

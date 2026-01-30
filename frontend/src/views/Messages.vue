@@ -178,9 +178,11 @@ import { wsService } from '@/services/websocket'
 import { ApiError } from '@/types'
 import { showError, showSuccess } from '@/utils/errorHandler'
 import { browserNotificationService } from '@/services/browserNotification'
+import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import type { Application, Message } from '@/types'
 
 const { t } = useI18n()
+const { confirm: confirmDialog } = useConfirmDialog()
 
 const messagesStore = useMessagesStore()
 const authStore = useAuthStore()
@@ -190,9 +192,9 @@ const loadingMore = computed(() => messagesStore.loadingMore)
 const error = computed(() => messagesStore.error)
 const messages = computed(() => messagesStore.messages)
 const hasMore = computed(() => messagesStore.hasMore)
-const wsConnected = computed(() => wsService.isConnected())
-const wsConnectionState = computed(() => wsService.getConnectionState())
-const lastConnected = computed<string | undefined>(() => wsService.getLastConnected() ?? undefined)
+const wsConnected = ref(wsService.isConnected())
+const wsConnectionState = ref(wsService.getConnectionState())
+const lastConnected = ref<string | undefined>(wsService.getLastConnected() ?? undefined)
 
 // Applications for filter
 const applications = ref<Application[]>([])
@@ -260,7 +262,15 @@ const refreshMessages = () => {
 }
 
 const deleteMessage = async (id: number) => {
-  if (confirm(t('messages.deleteConfirm'))) {
+  const confirmed = await confirmDialog({
+    title: t('common.confirmDialog.title'),
+    message: t('messages.deleteConfirm'),
+    confirmText: t('common.confirmDialog.confirmButton'),
+    cancelText: t('common.confirmDialog.cancelButton'),
+    type: 'danger'
+  })
+  
+  if (confirmed) {
     try {
       await messagesStore.deleteMessage(id)
       showSuccess(t('messages.deleteSuccess'))
@@ -301,9 +311,16 @@ const toggleSelectAll = () => {
 const deleteSelectedMessages = async () => {
   if (selectedMessages.value.length === 0) return
 
-  if (confirm(t('messages.deleteMultipleConfirm', { count: selectedMessages.value.length }))) {
+  const confirmed = await confirmDialog({
+    title: t('common.confirmDialog.title'),
+    message: t('messages.deleteMultipleConfirm', { count: selectedMessages.value.length }),
+    confirmText: t('common.confirmDialog.confirmButton'),
+    cancelText: t('common.confirmDialog.cancelButton'),
+    type: 'danger'
+  })
+
+  if (confirmed) {
     try {
-      // Delete each selected message
       for (const id of selectedMessages.value) {
         await messagesStore.deleteMessage(id)
       }
@@ -335,15 +352,24 @@ const handleNewMessage = (message: any) => {
   console.log('New message received:', message)
 }
 
+const handleWsStateChange = (state: 'disconnected' | 'connecting' | 'connected') => {
+  wsConnected.value = state === 'connected'
+  wsConnectionState.value = state
+  // 确保在状态变为 connected 时更新最后连接时间
+  lastConnected.value = wsService.getLastConnected() ?? undefined
+}
+
 onMounted(() => {
   refreshMessages()
   loadApplications()
   wsService.onMessage(handleNewMessage)
+  wsService.onStateChange(handleWsStateChange)
   checkNotificationPrompt()
 })
 
 onUnmounted(() => {
   wsService.offMessage(handleNewMessage)
+  wsService.offStateChange(handleWsStateChange)
 })
 
 const showSendModal = ref(false)

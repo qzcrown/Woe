@@ -76,7 +76,11 @@ REGISTRATION = false
 # SQL Migration Files (Already configured)
 # ----------------------------------------
 # Migration SQL files are automatically included in the Worker bundle
-# [[rules]]
-# type = "Text"
-# globs = ["**/*.sql"]
-# fallthrough = true
+[[rules]]
+type = "Text"
+globs = ["**/*.sql"]
+fallthrough = true
+
+# Scheduled tasks for periodic cleanup
+[triggers]
+crons = ["0 2 * * *"]  # Daily at 2:00 AM UTC - cleanup old plugin logs

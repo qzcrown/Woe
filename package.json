@@ -1,21 +1,29 @@
 {
   "name": "woe",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Gotify-compatible notification service",
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
+    "dev:auto": "./scripts/dev-with-migration.sh",
     "deploy": "wrangler deploy",
+    "deploy:auto": "./scripts/deploy-with-migration.sh",
     "build": "npm run build:frontend && wrangler deploy --dry-run",
     "build:frontend": "cd frontend && npm run build",
     "dev:frontend": "cd frontend && npm run dev",
-    "setup:frontend": "cd frontend && npm install"
+    "setup:frontend": "cd frontend && npm install",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:update-index": "node scripts/update-migration-index.js"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241106.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.0.0",
     "@vitejs/plugin-vue": "^5.1.0",
     "drizzle-kit": "^0.31.8",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.6.3",
     "vite": "^5.4.0",
     "vue-tsc": "^2.1.0",
@@ -24,6 +32,9 @@
   "dependencies": {
     "@types/crypto-js": "^4.2.2",
     "crypto-js": "^4.2.0",
-    "drizzle-orm": "^0.45.0"
+    "drizzle-orm": "^0.45.0",
+    "file-type": "^21.3.0",
+    "hono": "^4.11.4",
+    "yaml": "^2.7.0"
   }
 }

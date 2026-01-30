@@ -103,23 +103,45 @@ export interface VersionInfo {
 export interface User {
   readonly id: number
   name: string
+  nickname: string
+  email: string
+  avatar?: string
+  description?: string
   admin: boolean
+  disabled: boolean
+}
+
+export interface UpdateUserProfile {
+  nickname?: string
+  email?: string
+  description?: string
 }
 
 export interface CreateUserExternal {
   name: string
+  nickname: string
+  email: string
+  description?: string
   admin: boolean
   pass: string
 }
 
 export interface UpdateUserExternal {
   name: string
+  nickname?: string
+  email?: string
+  description?: string
   admin: boolean
   pass?: string
 }
 
 export interface UserPass {
   pass: string
+}
+
+export interface ChangePasswordRequest {
+  oldPassword: string
+  newPassword: string
 }
 
 // ======== 应用相关 ========
@@ -182,10 +204,12 @@ export interface Plugin {
   readonly token: string
   enabled: boolean
   readonly modulePath: string
+  readonly icon?: string
   capabilities: string[]
   readonly author?: string
   readonly license?: string
   readonly website?: string
+  readonly configExample?: string
 }
 
 // ======== 分页工具函数 ========

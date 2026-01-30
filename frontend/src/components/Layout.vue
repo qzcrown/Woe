@@ -17,11 +17,11 @@
         <router-link to="/clients" class="nav-item" active-class="active">
           {{ $t('common.clients') }}
         </router-link>
-        <router-link to="/users" class="nav-item" active-class="active" v-if="authStore.user?.admin">
-          {{ $t('common.users') }}
-        </router-link>
         <router-link to="/plugins" class="nav-item" active-class="active">
           {{ $t('common.plugins') }}
+        </router-link>
+        <router-link to="/users" class="nav-item" active-class="active" v-if="authStore.user?.admin">
+          {{ $t('common.users') }}
         </router-link>
         <router-link to="/settings" class="nav-item" active-class="active">
           {{ $t('common.settings') }}
@@ -39,7 +39,10 @@
           </button>
         </div>
 
-        <span class="user-info">{{ authStore.user?.name }}</span>
+        <div class="user-profile" @click="showProfileModal = true" v-if="authStore.user">
+          <UserAvatar :user="authStore.user" size="small" :clickable="true" />
+          <span class="user-info">{{ authStore.user?.nickname || authStore.user?.name }}</span>
+        </div>
         <button @click="logout" class="logout-btn">
           {{ $t('common.logout') }}
         </button>
@@ -48,18 +51,30 @@
     <main class="main-content">
       <slot />
     </main>
+
+    <EditProfileModal
+      v-if="showProfileModal && authStore.user"
+      :user="authStore.user"
+      @close="showProfileModal = false"
+      @updated="handleProfileUpdated"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
+import UserAvatar from './UserAvatar.vue'
+import EditProfileModal from './EditProfileModal.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
 const { locale } = useI18n()
+
+const showProfileModal = ref(false)
 
 const currentLocale = computed(() => locale.value)
 
@@ -73,6 +88,10 @@ const toggleLanguage = () => {
   const newLocale = locale.value === 'zh-CN' ? 'en-US' : 'zh-CN'
   locale.value = newLocale
   localStorage.setItem('locale', newLocale)
+}
+
+const handleProfileUpdated = (user: any) => {
+  authStore.user = user
 }
 </script>
 
@@ -127,6 +146,20 @@ const toggleLanguage = () => {
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s;
+}
+
+.user-profile:hover {
+  background-color: #f3f4f6;
 }
 
 .user-info {

@@ -2,6 +2,27 @@
   <div id="app">
     <router-view />
     <Notification />
+    <ConfirmDialog
+      :visible="confirmState.visible"
+      :title="confirmState.options.title"
+      :message="confirmState.options.message"
+      :confirm-text="confirmState.options.confirmText"
+      :cancel-text="confirmState.options.cancelText"
+      :type="confirmState.options.type"
+      :loading="confirmState.loading"
+      :close-on-overlay-click="confirmState.options.closeOnOverlayClick"
+      @confirm="handleConfirm"
+      @cancel="handleCancel"
+    />
+    <AlertDialog
+      :visible="alertState.visible"
+      :title="alertState.options.title"
+      :message="alertState.options.message"
+      :confirm-text="alertState.options.confirmText"
+      :type="alertState.options.type"
+      :close-on-overlay-click="alertState.options.closeOnOverlayClick"
+      @confirm="handleAlertConfirm"
+    />
   </div>
 </template>
 
@@ -11,9 +32,16 @@ import { useAuthStore } from '@/stores/auth'
 import { useMessagesStore } from '@/stores/messages'
 import { browserNotificationService } from '@/services/browserNotification'
 import Notification from '@/components/Notification.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import AlertDialog from '@/components/AlertDialog.vue'
+import { useConfirmDialogProvider } from '@/composables/useConfirmDialog'
+import { useAlertProvider } from '@/composables/useAlert'
 
 const authStore = useAuthStore()
 const messagesStore = useMessagesStore()
+
+const { state: confirmState, handleConfirm, handleCancel } = useConfirmDialogProvider()
+const { state: alertState, handleConfirm: handleAlertConfirm } = useAlertProvider()
 
 onMounted(async () => {
   // Check authentication on app load

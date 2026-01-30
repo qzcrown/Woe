@@ -35,12 +35,7 @@
       <div v-else class="plugins-grid">
         <div v-for="plugin in plugins" :key="plugin.id" class="plugin-card">
           <div class="plugin-header">
-            <div class="plugin-icon">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 2L2 7l10 5 10-5-10 5z"></path>
-                <path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path>
-              </svg>
-            </div>
+            <PluginIcon :name="plugin.name" :icon="plugin.icon" size="small" />
             <div class="plugin-title-container">
               <h3 class="plugin-name">{{ plugin.name }}</h3>
               <div class="plugin-status" :class="{ 'status-enabled': plugin.enabled }">
@@ -88,9 +83,9 @@
             <router-link :to="`/plugins/${plugin.id}`" class="details-btn">
               {{ $t('plugins.viewDetails') }}
             </router-link>
-            
-            <button 
-              @click="togglePlugin(plugin)" 
+
+            <button
+              @click="togglePlugin(plugin)"
               :class="['toggle-btn', plugin.enabled ? 'disable-btn' : 'enable-btn']"
               :disabled="togglingPlugin === plugin.id"
             >
@@ -100,6 +95,7 @@
           </div>
         </div>
       </div>
+
     </div>
   </Layout>
 </template>
@@ -110,6 +106,7 @@ import { useI18n } from 'vue-i18n'
 import Layout from '@/components/Layout.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import PluginIcon from '@/components/PluginIcon.vue'
 import { pluginApi } from '@/services/api'
 import { showSuccess, showError } from '@/utils/errorHandler'
 import type { Plugin } from '@/types'
@@ -233,7 +230,7 @@ onMounted(() => {
   display: inline-block;
   padding: 0.5rem 1rem;
   background-color: #3b82f6;
-  color: white;
+  color: white !important;
   text-decoration: none;
   border-radius: 0.375rem;
   font-weight: 500;
@@ -242,6 +239,7 @@ onMounted(() => {
 
 .learn-more-btn:hover {
   background-color: #2563eb;
+  color: white !important;
 }
 
 .plugins-grid {
@@ -264,18 +262,6 @@ onMounted(() => {
   align-items: center;
   gap: 1rem;
   padding: 1.5rem 1.5rem 0;
-}
-
-.plugin-icon {
-  width: 48px;
-  height: 48px;
-  background-color: #f3f4f6;
-  border-radius: 0.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #6b7280;
-  flex-shrink: 0;
 }
 
 .plugin-title-container {

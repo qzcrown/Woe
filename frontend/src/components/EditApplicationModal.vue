@@ -1,27 +1,27 @@
 <template>
   <BaseModal @close="onClose">
     <template #title>
-      <h3 class="title">Edit Application</h3>
+      <h3 class="title">{{ t('editApplication.title') }}</h3>
     </template>
     <form @submit.prevent="onSubmit" class="form">
       <label class="field">
-        <span>Name</span>
+        <span>{{ t('editApplication.name') }}</span>
         <input v-model.trim="name" type="text" required :placeholder="application.name" />
       </label>
       <label class="field">
-        <span>Description</span>
-        <textarea v-model.trim="description" :placeholder="application.description || 'Optional description'" />
+        <span>{{ t('editApplication.description') }}</span>
+        <textarea v-model.trim="description" :placeholder="application.description || t('editApplication.descriptionPlaceholder')" />
       </label>
       <label class="field">
-        <span>Default Priority</span>
+        <span>{{ t('editApplication.defaultPriority') }}</span>
         <input v-model.number="defaultPriority" type="number" min="0" max="3" :placeholder="application.defaultPriority?.toString() || '0'" />
       </label>
       <p v-if="error" class="error">{{ error }}</p>
     </form>
     <template #footer>
-      <button class="btn" @click="onClose" :disabled="submitting">Cancel</button>
+      <button class="btn" @click="onClose" :disabled="submitting">{{ t('editApplication.cancel') }}</button>
       <button class="btn primary" @click="onSubmit" :disabled="submitting || !name">
-        {{ submitting ? 'Updating...' : 'Update' }}
+        {{ submitting ? t('editApplication.updating') : t('editApplication.update') }}
       </button>
     </template>
   </BaseModal>
@@ -29,8 +29,14 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import BaseModal from './BaseModal.vue'
 import { applicationApi } from '@/services/api'
+
+/**
+ * 获取 i18n 翻译函数
+ */
+const { t } = useI18n()
 
 const props = defineProps<{
   application: any
@@ -49,7 +55,7 @@ const onClose = () => emit('close')
 const onSubmit = async () => {
   error.value = ''
   if (!name.value) {
-    error.value = 'Name is required'
+    error.value = t('editApplication.nameRequired')
     return
   }
   submitting.value = true
@@ -62,7 +68,7 @@ const onSubmit = async () => {
     emit('updated')
     emit('close')
   } catch (e: any) {
-    error.value = e?.errorDescription || 'Failed to update application'
+    error.value = e?.errorDescription || t('editApplication.updateError')
   } finally {
     submitting.value = false
   }

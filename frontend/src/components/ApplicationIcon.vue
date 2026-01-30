@@ -1,14 +1,15 @@
 <template>
   <div class="application-icon" :class="[`size-${size}`, { 'has-image': hasImage }]">
     <img 
-      v-if="hasImage && imageSrc" 
+      v-if="imageSrc" 
       :src="imageSrc" 
       :alt="name"
       @error="handleImageError"
       @load="handleImageLoad"
       class="icon-image"
+      :class="{ 'image-hidden': !imageLoaded || imageError }"
     />
-    <div v-else class="icon-placeholder">
+    <div v-if="!hasImage" class="icon-placeholder">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
         <line x1="8" y1="21" x2="16" y2="21"></line>
@@ -23,7 +24,7 @@
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
-        <span>Upload</span>
+        <span>{{ t('common.upload') }}</span>
       </div>
     </div>
     
@@ -31,7 +32,7 @@
       v-if="showDeleteButton && hasImage" 
       @click="deleteImage" 
       class="delete-button"
-      title="Delete icon"
+      :title="t('common.deleteIcon')"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -50,7 +51,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useConfirmDialog } from '@/composables/useConfirmDialog'
+import { useAlert } from '@/composables/useAlert'
+
+const { t } = useI18n()
+const { warning } = useAlert()
 
 interface Props {
   name: string
@@ -73,10 +80,17 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<Emits>()
+const { confirm: confirmDialog } = useConfirmDialog()
 
 const fileInput = ref<HTMLInputElement>()
 const imageError = ref(false)
 const imageLoaded = ref(false)
+
+// 监听 image prop 变化，重置状态
+watch(() => props.image, () => {
+  imageError.value = false
+  imageLoaded.value = false
+})
 
 const hasImage = computed(() => {
   return props.image && !imageError.value && imageLoaded.value
@@ -98,26 +112,26 @@ const triggerFileInput = () => {
   fileInput.value?.click()
 }
 
-const handleFileChange = (event: Event) => {
+const handleFileChange = async (event: Event) => {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
-  
+
   if (file) {
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      alert('Please select an image file')
+      await warning(t('common.selectImageFile'))
       return
     }
-    
-    // Validate file size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      alert('Image size must be less than 2MB')
+
+    // Validate file size (max 1MB)
+    if (file.size > 1 * 1024 * 1024) {
+      await warning(t('common.imageSizeLimit'))
       return
     }
-    
+
     emit('upload', file)
   }
-  
+
   // Reset input value to allow selecting the same file again
   target.value = ''
 }
@@ -130,8 +144,16 @@ const handleImageLoad = () => {
   imageLoaded.value = true
 }
 
-const deleteImage = () => {
-  if (confirm('Are you sure you want to delete this icon?')) {
+const deleteImage = async () => {
+  const confirmed = await confirmDialog({
+    title: t('common.confirmDialog.title'),
+    message: t('plugins.deleteIconConfirm'),
+    confirmText: t('common.confirmDialog.confirmButton'),
+    cancelText: t('common.confirmDialog.cancelButton'),
+    type: 'warning'
+  })
+  
+  if (confirmed) {
     emit('delete')
   }
 }
@@ -168,6 +190,13 @@ const deleteImage = () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: opacity 0.2s;
+}
+
+.icon-image.image-hidden {
+  opacity: 0;
+  position: absolute;
+  pointer-events: none;
 }
 
 .icon-placeholder {

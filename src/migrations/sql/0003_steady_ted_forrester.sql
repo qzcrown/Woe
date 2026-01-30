@@ -1,0 +1,1 @@
+ALTER TABLE `plugin_configs` ADD `icon` text;

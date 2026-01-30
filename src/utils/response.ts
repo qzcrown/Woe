@@ -6,6 +6,9 @@ export class ApiResponse {
       status,
       headers: {
         "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Gotify-Key",
         ...headers,
       },
     });
@@ -21,6 +24,9 @@ export class ApiResponse {
       status: errorCode,
       headers: {
         "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Gotify-Key",
       },
     });
   }

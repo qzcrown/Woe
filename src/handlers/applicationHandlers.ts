@@ -1,9 +1,10 @@
 import { generateToken } from "../middleware/auth.ts";
 import { Application } from "../types/index.ts";
 import { ApiResponse, formatDate } from "../utils/response.ts";
+import { validateImageFile } from "../utils/fileValidation.ts";
 import { DrizzleDB } from "../drizzle/index.ts";
 import { applications, users } from "../models/index.ts";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 
 export class ApplicationHandlers {
   constructor(private drizzle: DrizzleDB) {}
@@ -268,19 +269,26 @@ export class ApplicationHandlers {
   }
 
   // POST /application/{id}/image - Upload an image for an application
-  async uploadApplicationImage(userId: number, id: string, request: Request, env: any): Promise<Response> {
+  async uploadApplicationImage(userId: number, id: string, isAdmin: boolean, request: Request, env: any): Promise<Response> {
     try {
       const appId = parseInt(id);
-      
-      // Check if application exists and belongs to the user
-      const appResult = await this.drizzle
-        .select({ id: applications.id })
-        .from(applications)
-        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`)
-        .get();
+
+      // Admin can access all applications, non-admin can only access their own
+      const appResult = isAdmin
+        ? await this.drizzle
+            .select({ id: applications.id, userId: applications.userId })
+            .from(applications)
+            .where(eq(applications.id, appId))
+            .get()
+        : await this.drizzle
+            .select({ id: applications.id, userId: applications.userId })
+            .from(applications)
+            .where(and(eq(applications.id, appId), eq(applications.userId, userId)))
+            .get();
 
       if (!appResult) {
-        return ApiResponse.error("Not Found", 404, "Application not found");
+        return ApiResponse.error("Not Found", 404,
+          isAdmin ? "Application not found" : "Application not found or you don't have permission");
       }
 
       // Check if R2 bucket is available
@@ -305,8 +313,11 @@ export class ApplicationHandlers {
 
         // file is now a File/Blob object
         const fileBlob = file as Blob;
-        if (!fileBlob.type.startsWith("image/")) {
-          return ApiResponse.error("Bad Request", 400, "Only image files are allowed");
+
+        // Validate using file-type (checks magic numbers)
+        const validation = await validateImageFile(fileBlob);
+        if (!validation.valid) {
+          return ApiResponse.error("Bad Request", 400, validation.error || "Invalid image file");
         }
 
         fileBody = await fileBlob.arrayBuffer();
@@ -344,7 +355,7 @@ export class ApplicationHandlers {
           image: imageUrl,
           updatedAt: sql`CURRENT_TIMESTAMP`
         })
-        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`)
+        .where(eq(applications.id, appId))
         .returning({
           id: applications.id,
           userId: applications.userId,
@@ -381,19 +392,26 @@ export class ApplicationHandlers {
   }
 
   // DELETE /application/{id}/image - Delete an image of an application
-  async deleteApplicationImage(userId: number, id: string, env: any): Promise<Response> {
+  async deleteApplicationImage(userId: number, id: string, isAdmin: boolean, env: any): Promise<Response> {
     try {
       const appId = parseInt(id);
-      
-      // Get current image URL
-      const appResult = await this.drizzle
-        .select({ image: applications.image })
-        .from(applications)
-        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`)
-        .get();
+
+      // Admin can access all applications, non-admin can only access their own
+      const appResult = isAdmin
+        ? await this.drizzle
+            .select({ image: applications.image, userId: applications.userId })
+            .from(applications)
+            .where(eq(applications.id, appId))
+            .get()
+        : await this.drizzle
+            .select({ image: applications.image, userId: applications.userId })
+            .from(applications)
+            .where(and(eq(applications.id, appId), eq(applications.userId, userId)))
+            .get();
 
       if (!appResult) {
-        return ApiResponse.error("Not Found", 404, "Application not found");
+        return ApiResponse.error("Not Found", 404,
+          isAdmin ? "Application not found" : "Application not found or you don't have permission");
       }
 
       const currentImage = appResult.image;
@@ -416,7 +434,7 @@ export class ApplicationHandlers {
           image: null,
           updatedAt: sql`CURRENT_TIMESTAMP`
         })
-        .where(sql`${applications.id} = ${appId} AND ${applications.userId} = ${userId}`);
+        .where(eq(applications.id, appId));
 
       return ApiResponse.json({});
 

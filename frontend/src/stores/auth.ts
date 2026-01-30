@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi, clientApi } from '@/services/api'
 import { authService } from '@/services/auth'
+import { wsService } from '@/services/websocket'
 import type { User } from '@/types'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -34,6 +35,9 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = userResponse.data
       authenticated.value = true
 
+      // Connect WebSocket after successful login
+      wsService.connect(clientRes.data.token)
+
       return true
     } catch (error) {
       console.error('Login failed:', error)
@@ -46,6 +50,9 @@ export const useAuthStore = defineStore('auth', () => {
     // 通过 authService 清理所有认证信息
     authService.clearAllAuth()
     authenticated.value = false
+
+    // Disconnect WebSocket on logout
+    wsService.disconnect()
   }
 
   const checkAuth = async () => {

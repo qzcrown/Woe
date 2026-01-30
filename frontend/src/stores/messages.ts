@@ -23,7 +23,7 @@ export const useMessagesStore = defineStore('messages', () => {
 
     try {
       const response = await messageApi.getMessages(params)
-      messages.value = response.data.messages.reverse() // Show newest first
+      messages.value = response.data.messages
       paging.value = response.data.paging
       hasMore.value = !!response.data.paging.next
     } catch (err) {
@@ -46,11 +46,11 @@ export const useMessagesStore = defineStore('messages', () => {
         since: paging.value.since
       }
       const response = await messageApi.getMessages(params)
-      
+
       // Append older messages to the end
-      const olderMessages = response.data.messages.reverse()
+      const olderMessages = response.data.messages
       messages.value = [...messages.value, ...olderMessages]
-      
+
       paging.value = response.data.paging
       hasMore.value = !!response.data.paging.next
     } catch (err) {

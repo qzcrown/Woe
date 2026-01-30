@@ -54,9 +54,12 @@ import Layout from '@/components/Layout.vue'
 import { clientApi } from '@/services/api'
 import CreateClientModal from '@/components/CreateClientModal.vue'
 import EditClientModal from '@/components/EditClientModal.vue'
+import { showSuccess, showError } from '@/utils/errorHandler'
+import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import type { Client } from '@/types'
 
 const { t } = useI18n()
+const { confirm: confirmDialog } = useConfirmDialog()
 
 const clients = ref<Client[]>([])
 const loading = ref(true)
@@ -88,9 +91,10 @@ const reloadClients = async () => {
 const copyToken = async (token: string) => {
   try {
     await navigator.clipboard.writeText(token)
-    alert(t('clients.tokenCopied'))
+    showSuccess(t('clients.tokenCopied'))
   } catch (err) {
     console.error('Failed to copy token:', err)
+    showError(err as Error, t('common.unknownError'))
   }
 }
 
@@ -100,14 +104,22 @@ const editClient = (client: Client) => {
 }
 
 const deleteClient = async (id: number) => {
-  if (confirm(t('clients.deleteConfirm'))) {
+  const confirmed = await confirmDialog({
+    title: t('common.confirmDialog.title'),
+    message: t('clients.deleteConfirm'),
+    confirmText: t('common.confirmDialog.confirmButton'),
+    cancelText: t('common.confirmDialog.cancelButton'),
+    type: 'danger'
+  })
+  
+  if (confirmed) {
     try {
       await clientApi.deleteClient(id)
-      alert(t('clients.deleteSuccess'))
+      showSuccess(t('clients.deleteSuccess'))
       await reloadClients()
     } catch (err: any) {
       console.error('Failed to delete client:', err)
-      alert(t('clients.deleteError', { error: err.errorDescription || t('common.unknownError') }))
+      showError(err, t('clients.deleteError'))
     }
   }
 }

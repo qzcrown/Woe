@@ -3,7 +3,12 @@
 export interface User {
   id: number;
   name: string;
+  nickname: string;
+  email: string;
+  avatar?: string;
+  description?: string;
   admin: boolean;
+  disabled: boolean;
 }
 
 export interface UserWithPass extends User {
@@ -32,8 +37,8 @@ export interface Message {
   id: number;
   appid: number;
   message: string;
-  title: string;
-  priority: number;
+  title?: string;
+  priority?: number;
   date: string;
   extras?: Record<string, any>;
 }
@@ -56,10 +61,12 @@ export interface PluginConf {
   token: string;
   modulePath: string;
   enabled: boolean;
+  icon?: string;
   capabilities: string[];
   author?: string;
   license?: string;
   website?: string;
+  configExample?: string;
 }
 
 export interface Health {

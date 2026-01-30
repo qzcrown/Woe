@@ -7,13 +7,14 @@ import type {
   Plugin,
   HealthStatus,
   VersionInfo,
-  UserPass,
   CreateUserExternal,
   UpdateUserExternal,
   ApplicationParams,
   ClientParams,
   PagedMessages,
   ErrorResponse,
+  UpdateUserProfile,
+  ChangePasswordRequest,
 } from '@/types'
 import {
   ApiError,
@@ -160,8 +161,40 @@ export const userApi = {
 
   deleteUser: (id: number) => api.delete(`/user/${id}`),
 
-  updateCurrentUserPassword: (passwordData: UserPass) =>
+  updateCurrentUserPassword: (passwordData: ChangePasswordRequest) =>
     api.post('/current/user/password', passwordData),
+
+  // User profile endpoints
+  updateProfile: (id: number, data: UpdateUserProfile) =>
+    api.put<User>(`/user/${id}/profile`, data),
+
+  uploadAvatar: (id: number, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<User>(`/user/${id}/avatar`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  deleteAvatar: (id: number) =>
+    api.delete(`/user/${id}/avatar`),
+
+  // Admin-only endpoints to get user details
+  getUserApplications: (id: number) => api.get<Application[]>(`/user/${id}/applications`),
+
+  getUserClients: (id: number) => api.get<Client[]>(`/user/${id}/clients`),
+
+  getUserPlugins: (id: number) => api.get<Plugin[]>(`/user/${id}/plugins`),
+
+  // Plugin permissions (admin only)
+  getPluginPermissions: (id: number) => api.get<string[]>(`/user/${id}/plugin-permissions`),
+
+  updatePluginPermissions: (id: number, modulePaths: string[]) =>
+    api.put<string[]>(`/user/${id}/plugin-permissions`, { modulePaths }),
+
+  // Set user disabled status (admin only)
+  setUserDisabled: (id: number, disabled: boolean) =>
+    api.put<User>(`/user/${id}/disabled`, { disabled }),
 }
 
 export const applicationApi = {
@@ -297,7 +330,30 @@ export const pluginApi = {
   disable: (id: number) => api.post(`/plugin/${id}/disable`, {}),
 
   getDisplay: (id: number) => api.get<string>(`/plugin/${id}/display`),
-  getLogs: (id: number, limit?: number) => api.get<any[]>(`/plugin/${id}/logs`, { params: { limit } })
+  getLogs: (id: number, limit?: number) => api.get<any[]>(`/plugin/${id}/logs`, { params: { limit } }),
+
+  // Update plugin name
+  updateName: (id: number, name: string) =>
+    api.put<{ name: string }>(`/plugin/${id}/name`, { name }),
+
+  // Upload plugin icon
+  uploadImage: (id: number, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<{ icon: string }>(`/plugin/${id}/image`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  // Delete plugin icon
+  deleteImage: (id: number) => api.delete(`/plugin/${id}/image`),
+
+  // Admin only: create a new plugin instance
+  createPlugin: (modulePath: string, name: string, targetUserId?: number) =>
+    api.post<Plugin>('/plugin', { modulePath, name, targetUserId }),
+
+  // Admin only: delete a plugin instance
+  deletePlugin: (id: number) => api.delete(`/plugin/${id}`)
 }
 
 export const systemApi = {

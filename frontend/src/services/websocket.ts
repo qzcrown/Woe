@@ -9,6 +9,12 @@ export class WebSocketService {
   private messageHandlers: ((message: Message) => void)[] = []
   private connectionState: 'disconnected' | 'connecting' | 'connected' = 'disconnected'
   private lastConnected: string | null = null
+  private stateChangeHandlers: ((state: 'disconnected' | 'connecting' | 'connected') => void)[] = []
+
+  private setConnectionState(state: 'disconnected' | 'connecting' | 'connected') {
+    this.connectionState = state
+    this.stateChangeHandlers.forEach(handler => handler(state))
+  }
 
   connect(token: string) {
     // 根据API规范，WebSocket端点支持多种认证方式，但浏览器WebSocket API限制只能使用查询参数
@@ -17,14 +23,14 @@ export class WebSocketService {
     const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stream?token=${encodeURIComponent(token)}`
 
     try {
-      this.connectionState = 'connecting'
+      this.setConnectionState('connecting')
       this.ws = new WebSocket(wsUrl)
 
       this.ws.onopen = () => {
         console.log('WebSocket connected')
-        this.connectionState = 'connected'
         this.reconnectAttempts = 0
         this.lastConnected = new Date().toISOString()
+        this.setConnectionState('connected')
       }
 
       this.ws.onmessage = (event) => {
@@ -38,17 +44,17 @@ export class WebSocketService {
 
       this.ws.onclose = () => {
         console.log('WebSocket disconnected')
-        this.connectionState = 'disconnected'
+        this.setConnectionState('disconnected')
         this.attemptReconnect(token)
       }
 
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error)
-        this.connectionState = 'disconnected'
+        this.setConnectionState('disconnected')
       }
     } catch (error) {
       console.error('Failed to connect WebSocket:', error)
-      this.connectionState = 'disconnected'
+      this.setConnectionState('disconnected')
       this.attemptReconnect(token)
     }
   }
@@ -89,6 +95,19 @@ export class WebSocketService {
     const index = this.messageHandlers.indexOf(handler)
     if (index > -1) {
       this.messageHandlers.splice(index, 1)
+    }
+  }
+
+  onStateChange(handler: (state: 'disconnected' | 'connecting' | 'connected') => void) {
+    this.stateChangeHandlers.push(handler)
+    // 立即触发一次当前状态
+    handler(this.connectionState)
+  }
+
+  offStateChange(handler: (state: 'disconnected' | 'connecting' | 'connected') => void) {
+    const index = this.stateChangeHandlers.indexOf(handler)
+    if (index > -1) {
+      this.stateChangeHandlers.splice(index, 1)
     }
   }
 
