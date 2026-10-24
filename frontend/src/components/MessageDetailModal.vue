@@ -34,6 +34,14 @@
     </div>
 
 
+    <div v-if="tags.length" class="message-tags-section">
+      <h4 class="extras-title">{{ $t('messageTags.title') }}</h4>
+      <div class="message-tags-list">
+        <span v-for="tag in tags" :key="tag" class="message-tag-chip">{{ tag }}</span>
+      </div>
+    </div>
+
+
     <div v-if="hasExtras" class="extras-section">
       <h4 class="extras-title">{{ $t('messages.extrasData') }}</h4>
       <div v-for="(value, key) in message.extras" :key="key" class="extras-item">
@@ -61,6 +69,7 @@ import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { showError, showSuccess } from '@/utils/errorHandler'
 import { applicationApi } from '@/services/api'
 import { formatDateTime } from '@/utils/datetime'
+import { extractMessageTags } from '@/utils/messageTags'
 import type { Message, ApiError, Application } from '@/types'
 
 const props = defineProps<{ message: Message }>()
@@ -75,6 +84,8 @@ const { confirm: confirmDialog } = useConfirmDialog()
 const deleting = ref(false)
 const application = ref<Application | null>(null)
 const loadingApp = ref(false)
+
+const tags = computed(() => extractMessageTags(props.message.extras))
 
 const emitClose = () => emit('close')
 
@@ -264,6 +275,28 @@ onMounted(() => {
   margin-top: 0.25rem;
   padding-top: 1rem;
   border-top: 1px solid var(--color-border-primary);
+}
+
+.message-tags-section {
+  margin-bottom: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border-primary);
+}
+
+.message-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.message-tag-chip {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .extras-title {

@@ -198,5 +198,6 @@ pack.sh
 references/gotify/
 .zcodeignore
 .zcode/
+.workbuddy/
 # wrangler 本地密钥文件
 .dev.vars

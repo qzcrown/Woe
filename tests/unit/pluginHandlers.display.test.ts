@@ -46,8 +46,8 @@ describe("PluginHandlers display contract", () => {
   test("returns JSON string empty when plugin has no renderDisplay", async () => {
     const drizzle = createDisplayDrizzleMock({
       id: 2,
-      name: "Displayless Fixture",
-      modulePath: "builtin/displayless-fixture",
+      name: "Webhooker",
+      modulePath: "builtin/webhooker",
       enabled: 1,
       configYaml: ""
     });

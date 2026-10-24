@@ -1,5 +1,8 @@
 import { PushDispatcher } from '../../src/services/push/dispatcher'
-import { SUSPEND_RETRY_AT_DELAY_MS } from '../../src/services/push/providers/types'
+import { SUSPEND_RETRY_AT_DELAY_MS } from '../../src/services/push/contracts'
+
+
+
 
 
 
@@ -13,7 +16,7 @@ function makeOutboxStub(jobs: any[]) {
     getPushTargetByClientId: jest.fn().mockResolvedValue({
       kind: 'ready',
       clientId: 1,
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceToken: 'token-1',
       tokenUpdatedAt: '2026-09-24T00:00:00.000Z',
       tokenStatus: 'active'
@@ -25,16 +28,24 @@ function makeOutboxStub(jobs: any[]) {
   }
 }
 
+
+function makeResolver(provider: any | null) {
+  return {
+    get: jest.fn().mockReturnValue(provider),
+    getPolicy: jest.fn().mockReturnValue({ maxRetries: 3, retryBackoffMs: 2000 })
+  }
+}
+
 function makeValidJob(id: number) {
   return {
     id,
     userId: 7,
     messageId: 100 + id,
-    platform: 'test-platform',
+    platform: 'fixture_a',
     clientId: 1,
     payloadJson: JSON.stringify({
       userId: 7,
-      platform: 'test-platform',
+      platform: 'fixture_a',
       messageId: 100 + id,
       appid: 42,
       date: '2026-02-28T11:59:00.000Z',
@@ -52,11 +63,11 @@ describe('PushDispatcher', () => {
         id: 1,
         userId: 7,
         messageId: 100,
-        platform: 'test-platform',
+        platform: 'fixture_a',
         clientId: 1,
         payloadJson: JSON.stringify({
           userId: 7,
-          platform: 'test-platform',
+          platform: 'fixture_a',
           messageId: 100,
           appid: 42,
           date: '2026-02-28T11:59:00.000Z',
@@ -67,17 +78,12 @@ describe('PushDispatcher', () => {
       }
     ])
 
-    const providers = {
-      get: jest.fn().mockReturnValue({
-        name: 'test-platform',
-        send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
-      })
-    }
-
-    const dispatcher = new PushDispatcher(outbox as any, providers as any, {
-      maxRetries: 3,
-      retryBackoffMs: 2000
+    const providers = makeResolver({
+      name: 'fixture_a',
+      send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
     })
+
+    const dispatcher = new PushDispatcher(outbox as any, providers as any)
 
     await dispatcher.runOnce()
 
@@ -94,11 +100,11 @@ describe('PushDispatcher', () => {
         id: 2,
         userId: 7,
         messageId: 101,
-        platform: 'test-platform',
+        platform: 'fixture_a',
         clientId: 1,
         payloadJson: JSON.stringify({
           userId: 7,
-          platform: 'test-platform',
+          platform: 'fixture_a',
           messageId: 101,
           appid: 42,
           date: '2026-02-28T11:59:00.000Z',
@@ -109,17 +115,12 @@ describe('PushDispatcher', () => {
       }
     ])
 
-    const providers = {
-      get: jest.fn().mockReturnValue({
-        name: 'test-platform',
-        send: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
-      })
-    }
-
-    const dispatcher = new PushDispatcher(outbox as any, providers as any, {
-      maxRetries: 3,
-      retryBackoffMs: 2000
+    const providers = makeResolver({
+      name: 'fixture_a',
+      send: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
     })
+
+    const dispatcher = new PushDispatcher(outbox as any, providers as any)
 
     await dispatcher.runOnce()
 
@@ -130,7 +131,7 @@ describe('PushDispatcher', () => {
 
   test('dispatcher marks legacy payloads dead when deeplink contract fields are missing', async () => {
     const provider = {
-      name: 'test-platform',
+      name: 'fixture_a',
       send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
     }
 
@@ -139,11 +140,11 @@ describe('PushDispatcher', () => {
         id: 3,
         userId: 7,
         messageId: 102,
-        platform: 'test-platform',
+        platform: 'fixture_a',
 
         payloadJson: JSON.stringify({
           userId: 7,
-          platform: 'test-platform',
+          platform: 'fixture_a',
           deviceToken: 'token-1',
           title: 'hello',
           message: 'world'
@@ -152,12 +153,7 @@ describe('PushDispatcher', () => {
       }
     ])
 
-    const dispatcher = new PushDispatcher(outbox as any, {
-      get: jest.fn().mockReturnValue(provider)
-    } as any, {
-      maxRetries: 3,
-      retryBackoffMs: 2000
-    })
+    const dispatcher = new PushDispatcher(outbox as any, makeResolver(provider) as any)
 
     await dispatcher.runOnce()
 
@@ -167,14 +163,9 @@ describe('PushDispatcher', () => {
 
   test('dispatcher suspends job when provider is missing instead of dead-lettering', async () => {
     const outbox = makeOutboxStub([makeValidJob(4)])
-    const providers = {
-      get: jest.fn().mockReturnValue(null)
-    }
+    const providers = makeResolver(null)
 
-    const dispatcher = new PushDispatcher(outbox as any, providers as any, {
-      maxRetries: 3,
-      retryBackoffMs: 2000
-    })
+    const dispatcher = new PushDispatcher(outbox as any, providers as any)
 
     const before = Date.now()
     await dispatcher.runOnce()
@@ -184,7 +175,7 @@ describe('PushDispatcher', () => {
     expect(outbox.suspend).toHaveBeenCalledWith(
       4,
       expect.any(String),
-      expect.stringContaining('no provider for platform test-platform')
+      expect.stringContaining('no provider for platform fixture_a')
     )
     expect(outbox.markDead).not.toHaveBeenCalled()
 
@@ -193,19 +184,14 @@ describe('PushDispatcher', () => {
     expect(retryAt).toBeLessThanOrEqual(after + SUSPEND_RETRY_AT_DELAY_MS)
   })
 
-  test('dispatcher suspends job on PROVIDER_CONFIG_MISSING', async () => {
+  test('dispatcher suspends job on provider suspend classification', async () => {
     const outbox = makeOutboxStub([makeValidJob(5)])
-    const providers = {
-      get: jest.fn().mockReturnValue({
-        name: 'test-platform',
-        send: jest.fn().mockResolvedValue({ ok: false, retriable: false, suspend: true, errorCode: 'PROVIDER_CONFIG_MISSING', errorMessage: 'config missing' })
-      })
-    }
-
-    const dispatcher = new PushDispatcher(outbox as any, providers as any, {
-      maxRetries: 3,
-      retryBackoffMs: 2000
+    const providers = makeResolver({
+      name: 'fixture_a',
+      send: jest.fn().mockResolvedValue({ ok: false, retriable: false, failureKind: 'suspend', errorCode: 'FIXTURE_CONFIG_MISSING', errorMessage: 'config missing' })
     })
+
+    const dispatcher = new PushDispatcher(outbox as any, providers as any)
 
     await dispatcher.runOnce()
 
@@ -218,23 +204,18 @@ describe('PushDispatcher', () => {
     expect(outbox.markDead).not.toHaveBeenCalled()
   })
 
-  test('dispatcher dead-letters PROVIDER_NOT_IMPLEMENTED placeholder instead of suspending', async () => {
+  test('dispatcher dead-letters FIXTURE_NOT_IMPLEMENTED placeholder instead of suspending', async () => {
     const outbox = makeOutboxStub([makeValidJob(6)])
-    const providers = {
-      get: jest.fn().mockReturnValue({
-        name: 'test-platform-alt',
-        send: jest.fn().mockResolvedValue({ ok: false, retriable: false, errorCode: 'PROVIDER_NOT_IMPLEMENTED' })
-      })
-    }
-
-    const dispatcher = new PushDispatcher(outbox as any, providers as any, {
-      maxRetries: 3,
-      retryBackoffMs: 2000
+    const providers = makeResolver({
+      name: 'fixture_b',
+      send: jest.fn().mockResolvedValue({ ok: false, retriable: false, errorCode: 'FIXTURE_NOT_IMPLEMENTED' })
     })
+
+    const dispatcher = new PushDispatcher(outbox as any, providers as any)
 
     await dispatcher.runOnce()
 
-    expect(outbox.markDead).toHaveBeenCalledWith(6, 1, 'PROVIDER_NOT_IMPLEMENTED')
+    expect(outbox.markDead).toHaveBeenCalledWith(6, 1, 'FIXTURE_NOT_IMPLEMENTED')
     expect(outbox.suspend).not.toHaveBeenCalled()
   })
 
@@ -244,15 +225,11 @@ describe('PushDispatcher', () => {
       .mockResolvedValueOnce([makeValidJob(7), makeValidJob(8)])
       .mockResolvedValueOnce([makeValidJob(9)])
     const provider = {
-      name: 'test-platform',
+      name: 'fixture_a',
       send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
     }
 
-    const dispatcher = new PushDispatcher(outbox as any, {
-      get: jest.fn().mockReturnValue(provider)
-    } as any, {
-      maxRetries: 3,
-      retryBackoffMs: 2000,
+    const dispatcher = new PushDispatcher(outbox as any, makeResolver(provider) as any, {
       batchSize: 2
     })
 
@@ -267,15 +244,11 @@ describe('PushDispatcher', () => {
     const outbox = makeOutboxStub([])
     outbox.getDueJobs.mockImplementation(() => Promise.resolve([makeValidJob(10), makeValidJob(11)]))
     const provider = {
-      name: 'test-platform',
+      name: 'fixture_a',
       send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
     }
 
-    const dispatcher = new PushDispatcher(outbox as any, {
-      get: jest.fn().mockReturnValue(provider)
-    } as any, {
-      maxRetries: 3,
-      retryBackoffMs: 2000,
+    const dispatcher = new PushDispatcher(outbox as any, makeResolver(provider) as any, {
       batchSize: 2
     })
 

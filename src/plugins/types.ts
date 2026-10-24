@@ -1,3 +1,5 @@
+import type { PluginEventOutcome, PluginJobsAccess } from './jobs/types.ts'
+
 export interface PluginContext {
   userId: number
   now: string
@@ -12,10 +14,14 @@ export interface PluginContext {
   }
   application?: { id: number; name: string }
   client?: { id: number; name: string }
+
+  jobs?: PluginJobsAccess
 }
 
 export interface PluginInitOptions {
   config: Record<string, any> | undefined
+
+  jobs?: PluginJobsAccess
   pushOutbox?: {
     enqueueForUserDevices(input: {
       userId: number
@@ -41,7 +47,7 @@ export interface ExecutablePlugin {
   name: string
   capabilities: string[]
   init(opts: PluginInitOptions): Promise<void> | void
-  onMessageCreate?(ctx: PluginContext): Promise<void> | void
+  onMessageCreate?(ctx: PluginContext): Promise<PluginEventOutcome | void> | PluginEventOutcome | void
   onMessageDelete?(ctx: PluginContext): Promise<void> | void
   onApplicationCreate?(ctx: PluginContext): Promise<void> | void
   onClientCreate?(ctx: PluginContext): Promise<void> | void

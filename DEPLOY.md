@@ -1,32 +1,21 @@
-# Woe 部署指南（Cloudflare Workers）
+# Woe 部署指南
 
-本指南从零开始：创建全部 Cloudflare 资源 → 配置 → 构建前端 → 部署 Worker → 初始化管理员 → 验证。已部署公开版升级与回滚见文末。
+本指南对应当前版本源码。请在实际目标版本源码根执行命令。
 
-前置要求：
+## 1. 创建资源
 
-- Cloudflare 账号及 Wrangler 登录（运行 `npx wrangler login`）；Workers、D1、R2、Durable Objects、Queues 和 Images 受账户计划与配额约束
-- Node.js ≥ 22.12 与 npm
-- 已克隆本仓库并安装依赖：`npm ci`（仓库根）与 `npm ci`（`frontend/` 目录）
-
-## 1. 创建 Cloudflare 资源
+前置：Node.js ≥22.12、Cloudflare 账号，以及该账号可使用的 Workers/D1/R2/Queues/Images/SQLite-backed Durable Objects 配额。
 
 ```bash
-# D1 数据库（记下输出的 database_id，形如 UUID）
+npm ci
+npm --prefix frontend ci
+npx wrangler login
 npx wrangler d1 create woe-db
-
-# R2 存储桶（应用/用户/插件图标）
 npx wrangler r2 bucket create woe-storage
-
-# 可选：只有保留/实现推送传输插件时才需要创建 Queue
-# 当前公开版仅含 displayer，默认不会产生 push_outbox 任务
-npx wrangler queues create woe-push-queue
+npx wrangler queues create woe-plugin-jobs
 ```
 
-Durable Object（`MessageStreamHubObject`）不需要单独创建。首次 `wrangler deploy` 会应用 `[[migrations]]` 中的 `v1_message_stream_hub` / `new_sqlite_classes` 并创建 SQLite-backed DO 类；后续部署必须保留该 binding 和迁移历史。
-
-`[images]` 是 Worker 的 Images 优化 binding，用于压缩/转码 R2 中的图片；不需要单独创建 Images 存储资源。
-
-公开版只包含 `displayer`，没有 webhook/mobile-push 传输插件，因此默认不会写入 `push_outbox`，Queue 只是保留的异步扩展点。如果按 `example.wrangler.toml` 原样部署，请创建并保留 Queue；若只运行默认公开功能，可删除配置中的 `[[queues.producers]]` 与 `[[queues.consumers]]` 两段，消息 API 和 WebSocket 仍可工作。之后安装自定义传输插件时再恢复 Queue binding。
+记录 D1 UUID。首次部署会按 DO 的 [[migrations]] 创建 MessageStreamHubObject，无需手工创建。Images 使用 Worker binding，不需创建 Images 图片存储资源。
 
 ## 2. 配置 wrangler.toml
 
@@ -34,144 +23,111 @@ Durable Object（`MessageStreamHubObject`）不需要单独创建。首次 `wran
 cp example.wrangler.toml wrangler.toml
 ```
 
-必须修改的值：
+必改 database_id 为真实 UUID，bucket_name 与实际 R2 桶一致；选择 workers_dev=true 或配置 [[routes]] 自定义域名。默认模板未开放 workers.dev，不能同时不配置路由。
 
-| 配置项 | 说明 |
-|---|---|
-| `database_id` | 替换为第 1 步 `wrangler d1 create` 输出的 UUID（占位值 `00000000-0000-0000-0000-000000000000` 不是可用值） |
-| `workers_dev` | `true` 使用 `*.workers.dev` 域名；或删除该项并配置 `[[routes]]` 自定义域 |
-| `name` | Worker 名称（Cloudflare 控制台中显示） |
+模板保留 DB/R2/IMAGES/ASSETS/MESSAGE_STREAM_HUB，以及 Webhooker 所需的 PLUGIN_JOB_QUEUE producer/consumer。队列参数 max_batch_size=1、max_retries=2、max_concurrency=1：首次加两次重试共三次尝试。并发限制不保证投递顺序或恰好一次。
 
-可选：`REGISTRATION`（是否开放 API 注册，默认 `false`）、`[observability]` 日志与追踪。
+队列默认名 woe-plugin-jobs；若改名，producer、consumer 和 [vars].PLUGIN_JOB_QUEUE_NAME 必须同步。名称不匹配会在未知队列分支被确认丢弃。当前默认功能不需要 Workers AI（AI binding）、QUOTA_KV 或推送队列（PUSH_QUEUE）；若以后扩展任务/配额/provider，再按其声明补齐资源和对应队列名变量。
 
-公开版不包含厂商移动推送配置。若要接入自定义传输，需在 Worker bootstrap 中注入实现 `PushProvider` 接口的 Provider；配置由该 Provider 自行管理。
+REGISTRATION 默认 false。保留模板的 SQL 文本模块 rules、DO 迁移历史与 cron；daily cron 清理创建已超30天的终态 Plugin Jobs，将未终态且创建已超24h的 pending 标为 dead，不兜底补发 Job Queue。通用 push core 和历史表仍保留。
 
 ## 3. 设置 Secrets
 
-`DEFAULT_ADMIN_USER`（在 `[vars]` 中配置，默认 `admin`）是引导用户名；`DEFAULT_ADMIN_PASSWORD` 是通过 Secret 设置的引导密码。**这组凭据仅用于授权首次初始化，不会自动创建管理员账号，也不能用于日常登录。**
-
-引导密码通过以下命令注入（**不要**写进 `[vars]`——明文密码会随配置泄露）：
+首次设置：
 
 ```bash
-# 云端：强随机值；服务端拒绝已知弱值（password / admin / 123456），弱口令无法触发初始化
 npx wrangler secret put DEFAULT_ADMIN_PASSWORD
-
-# 引导用户名在 [vars] 的 DEFAULT_ADMIN_USER 中配置（默认 admin），它不是 Secret
+openssl rand -base64 32 | npx wrangler secret put PLUGIN_SECRET_MASTER_KEY
 ```
 
-本地开发使用 `frontend/` 之外的仓库根 `.dev.vars` 文件（已被 .gitignore 忽略，勿提交）：
+引导密码需强随机，拒绝 password/admin/123456。插件主密钥必须是 base64 编码32字节；PLUGIN_SECRET_KEY_VERSION 是 [vars] 中的正整数元数据，默认 "1"。保存 Webhooker 配置时即校验主密钥，即使未填写 authToken。
 
-```text
-DEFAULT_ADMIN_PASSWORD=your-strong-random-password
-```
+升级必须复用既有主密钥与版本，不能重复生成。若确需更换主密钥，必须同时提升 PLUGIN_SECRET_KEY_VERSION，并让用户重新输入真实 authToken；旧密文不能靠改版本恢复，*** 不能作为新凭据。Secrets 不写 [vars]、Git 或日志。
 
-`.dev.vars` 只作用于 `wrangler dev` 本地会话；云端必须用 `wrangler secret put`。两者互不替代。
+本地开发把独立测试的 DEFAULT_ADMIN_PASSWORD/PLUGIN_SECRET_MASTER_KEY 写入被忽略的根 .dev.vars；它不会自动同步到云端。
 
 ## 4. 构建与部署
 
-前端产物不提交仓库，部署前必须先构建：
-
 ```bash
-# 构建前端（含 vue-tsc 类型检查），输出到根 public/（ASSETS 目录）
 npm run build:frontend
-
-# 部署（会重新生成 buildInfo，并上传 Worker 与静态资源）
-npx wrangler deploy
-# 或使用等价脚本：npm run deploy
+npx wrangler deploy --dry-run
+npm run deploy
 ```
 
-数据库迁移由 Worker 在首次请求时自动执行：先运行入仓的 `0000_initial_schema` 固定基线，再按名称顺序执行后续增量迁移。全新 D1 不需要运行 `drizzle-kit generate`、`db:push` 或手动灌入临时基线。迁移成功后当前 isolate 复用成功状态；同一 isolate 的并发首请求共享一轮迁移。
+build:frontend 含类型检查并输出根 public/；deploy 刷新 buildInfo 后部署，但不自动重建前端。裸 npx wrangler deploy 不会刷新 buildInfo。dry-run 只验证打包/配置解析，不创建或验收真实资源。
 
-迁移失败时业务路由不会执行，请求直接返回 HTTP 503：
-
-```json
-{"error":"Database migration failed","code":"DATABASE_MIGRATION_FAILED"}
-```
-
-响应不包含 SQL、文件路径或堆栈，具体迁移名称只记录在 Worker 日志；失败状态会清除，后续请求可重试。
-
-`0000_initial_schema` 是固定入仓基线，`drizzle-kit generate` 仅用于开发和诊断，不是生产部署步骤。
+Worker 首次 HTTP 请求自动执行固定 0000_initial_schema 与后续增量迁移（包括0013_plugin_jobs）。空库无需 db:push 或手工导入基线；迁移失败返回503 DATABASE_MIGRATION_FAILED，详细原因在 Worker 日志。禁止删除 _migrations 或重复灌入基线解决不一致库。
 
 ## 5. 初始化管理员
 
-部署不会自动创建默认管理员账号。首次部署完成后，通过 `/setup` 创建首个实际管理员：
+部署不会自动创建日常管理员。DEFAULT_ADMIN_USER（默认admin）与步骤3的引导密码只用于授权初始化。
 
-1. 打开 Worker 域名，进入 `/setup` 页面。
-2. 在“初始化令牌”的用户名字段填写 `DEFAULT_ADMIN_USER` 的配置值（默认 `admin`），密码字段填写第 3 节设置的 `DEFAULT_ADMIN_PASSWORD` Secret。这组凭据只授权初始化。
-3. 在管理员用户名、密码和确认密码字段中填写要创建的实际管理员账号，例如 `woe-owner`，并使用独立的强密码。Web UI 要求管理员密码至少 8 个字符。
-4. 提交成功后，使用第 3 步创建的管理员账号登录 Web UI。
+打开 /setup，先填写引导用户名/密码，再设置实际管理员用户名和独立强密码，完成后用实际账户登录。不要让用户名和密码同时与引导凭据完全相同；相同用户名、不同密码可用。初始化一次成功后不能重放，修改引导变量不会更改已有账户。
 
-建议使用不同的用户名和独立的强密码。**不要让实际管理员的用户名和密码同时与引导凭据完全相同**，否则该组合会被登录认证拒绝；使用相同用户名但不同密码是允许的。
-
-也可通过 API 完成同一流程：
+API 等价流程（请替换占位符）：
 
 ```bash
-curl -u "<DEFAULT_ADMIN_USER>:<DEFAULT_ADMIN_PASSWORD>" \
-  -X POST https://<your-domain>/api/v1/init/admin \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"woe-owner","pass":"<独立的管理员强密码>"}'
+curl -u '<DEFAULT_ADMIN_USER>:<DEFAULT_ADMIN_PASSWORD>' -X POST 'https://<your-domain>/api/v1/init/admin' \
+  -H 'Content-Type: application/json' -d '{"name":"woe-owner","pass":"<独立的管理员强密码>"}'
 ```
 
-`-u` 中是引导凭据，请求体的 `name` / `pass` 是要创建的实际管理员凭据；请替换示例占位符。API 只校验 `name` / `pass` 非空，请自行选择强密码。
+API 只检查用户名/密码非空，请自行使用强密码。Web UI 要求至少8字符。
 
-初始化是**一次性**的：成功后再次调用会被拒绝。修改 `DEFAULT_ADMIN_USER` 或 `DEFAULT_ADMIN_PASSWORD` 不会更改已创建的管理员用户名或密码；后续账号管理应使用用户管理功能。
+## 6. 配置与验证 Webhooker
 
-## 6. 验证部署
+管理员默认有插件权限。非管理员由管理员用 PUT /user/<userId>/plugin-permissions 授权，body为 {"modulePaths":["builtin/webhooker","builtin/displayer"]}；该请求替换该用户的授权列表，先读取现有列表再合并。
 
-```bash
-# 健康检查（数据库可达性）
-curl https://<your-domain>/api/v1/health
+浏览器创建 Webhooker 实例，保存 YAML 并启用。最小配置：
 
-# 版本信息（version/commit/buildDate）
-curl https://<your-domain>/api/v1/version
-
-# 登录 Web UI，创建应用（获得一次性 app token）并推送一条消息：
-curl -H "X-Gotify-Key: <app token>" -H 'Content-Type: application/json' \
-  -d '{"title":"hello","message":"world","priority":0}' \
-  https://<your-domain>/api/v1/message
+```yaml
+targetUrl: https://example.com/webhook  # 替换为实际已验证的接收端
+method: POST
+timeoutMs: 5000
+# 首次需要 Bearer 时输入真实值；平台加密存储，GET 读取配置时返回掩码：
+# authToken: '<接收端凭据>'
 ```
 
-消息功能冒烟：创建 client（Web UI 或 `POST /client`）→ 用 client token 连接 `/stream` → 用 app token 发消息 → 收到同 id 消息。
+不用认证可省略 authToken。GET 读取配置返回 authToken 掩码；再次保存时保留 `authToken: "***"` 表示沿用已有密文，不得作为首次凭据。删除 authToken 字段或设为 null / 空字符串会清除已存凭据；输入真实新值则替换。旧 headers.Authorization 明文兼容，但不得与 authToken 并存，且不受 authToken 的掩码和加密保护；建议改用加密字段。默认 body 包含 pluginId/userId/event/message/at，message 内含 appId；应用名称等信息可用自定义 body 模板添加。不要把真实正文、密钥或完整 YAML 提交到 Git。
 
-## 7. 从已有公开版升级
+先查 /api/v1/health、/api/v1/version；使用 app token POST /api/v1/message，记录 messageId；用属主 Basic 或 client token GET /api/v1/message/<messageId>/jobs?pluginId=<pluginId> 检查状态，并确认接收端真实收到请求。status=success 才表示任务成功；消息创建成功、已建job或已入队都不代表已送达。
+
+Webhooker 只能由 message.create 事件触发；POST /message/<messageId>/jobs 对它返回 409 Conflict（内部拒绝原因为 plugin-unavailable，HTTP 响应不提供该 code 字段），不能用来手动重投。可能重复外发，接收端应按业务需要处理重复请求；不可宣称恰好一次。
+
+默认仅允许 HTTPS，静态阻断可识别的私网/环回地址与主机名，拒绝 userinfo/fragment、路径遍历和自动跟随重定向；Webhooker 支持 query。该检查不预解析 DNS，不能防止 DNS rebinding；应使用自己信任并核对解析结果的接收域名。确需可信内网目标时由部署者设置 WEBHOOKER_ALLOW_HTTP / WEBHOOKER_ALLOW_PRIVATE_NETWORK 为字符串 "true"（大小写不敏感），前者允许HTTP，后者允许私网；改值需重部署。1/yes/on均不生效，其他限制仍强制。
+
+并行验证 client token WebSocket 收到同ID消息、displayer启停/展示、浏览器登录与图标上传/读取/删除。displayer没有消息事件日志，空日志正常。真实Queue/D1/HTTP和浏览器结果应单独记录，不能用单测或dry-run替代。
+
+## 7. 升级与回滚
 
 ```bash
-git pull            # 获取新版本源码
-npm ci && (cd frontend && npm ci)
+git fetch --tags
+release_tag=vX.Y.Z  # 替换为实际发布的公开tag
+git switch --detach "$release_tag"
+npx wrangler d1 export woe-db --remote --output ../woe-before-upgrade.sql
+npm ci
+npm --prefix frontend ci
 npm run build:frontend
-npx wrangler deploy
+npm run deploy
 ```
 
-升级语义与注意事项：
+部署前逐段合并新模板，保留原DB/R2、DO迁移、路由、Secrets及cron。由旧displayer版升级，需创建Plugin Jobs Queue并设置插件主密钥，再创建/授权/配置/启用Webhooker；不会自动建立实例。旧同步Webhooker升级后变为异步尽力投递，URL/空YAML/字段类型校验更严格，需测试下游兼容。
 
-- 数据库迁移自动执行；迁移只前进，不自动回退。
-- **内置插件变更**：公开版仅含 displayer。若旧数据库中存在指向已移除内置插件（如 webhooker、push-huawei、push-apns）的插件配置行，这些实例升级后不可加载（modulePath 无法解析），也不会再执行；其配置行保留在数据库中，可手动删除。
-- **旧任务与队列**：已存在的 outbox 行、队列中的消息不会被升级流程自动删除，由保留的核心推送管线按既有重试/保留策略处理；如需清理，请用 D1 控制台或 `wrangler d1 execute` 显式操作，部署流程不会自动删数据。
-- 回滚：重新部署旧版本 Worker 代码即可（Workers 控制台或 `wrangler rollback`）；回滚不回退数据库 schema——若新版本迁移已执行，旧代码遇到新 schema 应保持兼容（迁移均为加列/加索引形态），部署前建议用 `wrangler d1 execute <db> --remote --command "SELECT ..."` 备份关键表。
+未包含插件的配置行不自动删除，实例不可加载。旧push_outbox/队列不自动清空：没有provider时有效pending可持续挂起；需保留待恢复或经过审阅人工终止，不能误称自动清理。保留迁移链与设备兼容字段，不自动删历史数据。
 
-## 8. 数据库状态诊断与故障处理
+回滚不回退schema。先停用任务入口并处理积压，避免新异步任务与旧同步插件重复外发；保留原主密钥。核对旧版本对新schema/密文/口令哈希的兼容，不要删除迁移记录或重生成密钥来回滚。
 
-使用只读命令检查远程 D1：
+## 8. 故障排查
 
-```bash
-npx wrangler d1 execute woe-db --remote --command "SELECT type, name FROM sqlite_master WHERE type IN ('table','index') ORDER BY type, name;"
-npx wrangler d1 execute woe-db --remote --command "SELECT name, applied_at FROM _migrations ORDER BY id;"
-```
-
-- **Fresh**：核心基础表都不存在，且 `_migrations` 不存在或为空；Worker 会自动运行固定基线和增量迁移。
-- **Healthy**：核心基础表完整且迁移记录可读；没有 `0000_initial_schema` 记录时只登记基线采用，不重复建表。
-- **Inconsistent**：只有部分基础表、迁移记录与结构不符，或已完成迁移的关键对象缺失；Worker 停止迁移并返回 503。
-
-无数据时新建 D1 并重新部署；有数据且结构完整时直接升级；有数据但不一致时先备份，再制定人工修复迁移。部署不会 DROP 表、删除 `_migrations` 或自动重灌基线。
-
-## 9. 故障排查
-
-| 现象 | 排查 |
+| 现象 | 检查 |
 |---|---|
-| `/health` 返回 `red` | D1 绑定不可达：检查 `database_id` 与区域 |
-| 请求返回 `503 DATABASE_MIGRATION_FAILED` | 查看 Worker 日志中的迁移名称；确认 D1 权限和资源可达性，修复后重试 |
-| 数据库被判定为不一致 | 先备份并执行只读结构检查；不要 DROP 表、删除 `_migrations` 或重复灌入基线 |
-| 初始化返回 403/弱口令拒绝 | `DEFAULT_ADMIN_PASSWORD` 是弱值（password/admin/123456）；换强随机值 |
-| 前端 404 或旧页面 | 忘记先 `npm run build:frontend`——public/ 未更新 |
-| 部署后 `POST /message` 500 | 队列绑定缺失：确认 `queues.producers`/`queues.consumers` 与队列名一致 |
-| 图片上传失败 | R2 桶名与 `bucket_name` 不一致，或 Images 绑定未启用 |
+| 保存配置503 secret-key-unavailable | 主密钥是否存在且base64解码为32字节，版本是否正整数 |
+| 保存配置409 secret-reentry-required | 密钥版本变化后需重新输入真实authToken，不能保留旧掩码 |
+| job error.code=secret-decrypt-failed | 已存密文无法用当前主密钥解密；核对原密钥，或重输真实authToken |
+| 消息成功但无job | 插件权限、enabled、filter、保存配置和入队拒绝日志 |
+| job failed / enqueue-send-failed | PLUGIN_JOB_QUEUE绑定/名称；cron不补发 |
+| outbound-blocked | 目标URL与部署出站策略；不要用重定向绕过 |
+| pending长时间不动 | Queue consumer、实际队列名和Worker日志；不要只看producer |
+| 数据库503 | 日志与_migrations/sqlite_master，先备份并检查结构 |
+| 前端旧页面或404 | 重建public/后部署；检查ASSETS与域名路由 |
+
+GET /message/<id>/jobs 返回状态/错误/结果，不暴露任务payload。任务快照可能含业务内容，随终态保留策略清理；备份按敏感数据保存。

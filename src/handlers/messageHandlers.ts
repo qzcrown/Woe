@@ -14,6 +14,7 @@ import { messages, applications } from "../models/index.ts";
 import { eq, sql, desc, count } from "drizzle-orm";
 import { MessageStreamHub } from "../services/messageStreamHub.ts";
 import type { Authenticator } from "../middleware/auth.ts";
+import type { PluginJobRuntime } from "../services/pluginJobs/pluginJobService.ts";
 
 
 
@@ -87,7 +88,12 @@ export async function resolveMessageCreateTarget(
 export class MessageHandlers {
   constructor(
     private drizzle: DrizzleDB,
-    private streamHub?: MessageStreamHub
+    private streamHub?: MessageStreamHub,
+
+
+
+
+    private jobRuntime?: PluginJobRuntime
   ) {}
 
 
@@ -314,7 +320,12 @@ export class MessageHandlers {
       try {
         const userIdNum = userId as number;
         const { PluginManager } = await import('../plugins/manager.ts');
-        const pm = new PluginManager(this.drizzle);
+
+
+        const pm = new PluginManager(
+          this.drizzle,
+          this.jobRuntime ? { jobs: this.jobRuntime.jobsFactory } : {}
+        );
         await pm.emit(userIdNum, 'message.create', {
           userId: userIdNum,
           now: new Date().toISOString(),

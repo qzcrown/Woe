@@ -22,7 +22,7 @@ const FAKE_ROW = {
   userId: 7,
   token: 'Cnewtoken',
   name: 'Pixel 9',
-  platform: 'test-platform',
+  platform: 'fixture_a',
   deviceUid: 'device-abc',
   deviceToken: 'new-push-token',
   tokenUpdatedAt: '2026-09-24T00:00:00.000Z',
@@ -101,7 +101,7 @@ describe('ClientHandlers device upsert statement shape', () => {
           user_id: 7,
           token: 'Cnewtoken',
           name: 'Pixel 9',
-          platform: 'test-platform',
+          platform: 'fixture_a',
           device_uid: 'device-abc',
           device_token: 'new-push-token',
           token_updated_at: '2026-09-24T00:00:00.000Z',
@@ -119,7 +119,7 @@ describe('ClientHandlers device upsert statement shape', () => {
     }
     const handlers = new ClientHandlers(drizzle as any, rawDb as any)
     const response = await handlers.createClient(7, {
-      name: 'Pixel 9', platform: 'test-platform', deviceUid: 'device-abc', deviceToken: 'new-push-token'
+      name: 'Pixel 9', platform: 'fixture_a', deviceUid: 'device-abc', deviceToken: 'new-push-token'
     })
     const body = await response.json() as any
     expect(response.status).toBe(200)
@@ -134,7 +134,7 @@ describe('ClientHandlers device upsert statement shape', () => {
 
     const res = await handlers.createClient(7, {
       name: 'Pixel 9',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: 'device-abc',
       deviceToken: 'new-push-token'
     })
@@ -176,7 +176,7 @@ describe('ClientHandlers device upsert statement shape', () => {
 
     const res = await handlers.createClient(7, {
       name: 'Pixel 9',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: 'device-abc',
       appVersion: '   '
     })

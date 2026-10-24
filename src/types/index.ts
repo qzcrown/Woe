@@ -127,6 +127,17 @@ export interface ErrorResponse {
 }
 
 
+
+
+
+
+
+
+export interface Ai {
+  run(model: string, input: unknown): Promise<unknown>;
+}
+
+
 export interface Env {
   DB: D1Database;
   PUSH_QUEUE?: Queue;
@@ -134,8 +145,40 @@ export interface Env {
   IMAGES?: ImagesBinding;
   ASSETS?: Fetcher;
   MESSAGE_STREAM_HUB?: DurableObjectNamespace;
+
+  AI?: Ai;
   ENVIRONMENT?: string;
   DEFAULT_ADMIN_USER?: string;
   DEFAULT_ADMIN_PASSWORD?: string;
   REGISTRATION?: string | boolean;
+
+  PLUGIN_SECRET_MASTER_KEY?: string;
+
+  PLUGIN_SECRET_KEY_VERSION?: string;
+
+  QUOTA_KV?: KVNamespace;
+
+
+
+
+  PLUGIN_JOB_QUEUE?: Queue;
+
+
+
+
+  PLUGIN_JOB_QUEUE_NAME?: string;
+
+  PUSH_QUEUE_NAME?: string;
+
+
+
+
+
+  WEBHOOKER_ALLOW_HTTP?: string;
+
+
+
+
+
+  WEBHOOKER_ALLOW_PRIVATE_NETWORK?: string;
 }

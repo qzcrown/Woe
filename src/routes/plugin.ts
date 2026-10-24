@@ -22,7 +22,7 @@ const plugin = new Hono<HonoEnv>();
 async function getClientAuth(c: any) {
   const drizzle = createDrizzle(c.env.DB);
   const authenticator = new Authenticator(drizzle);
-  const pluginHandlers = new PluginHandlers(drizzle);
+  const pluginHandlers = new PluginHandlers(drizzle, c.env);
 
   const basicAuthUser = await authenticator.authenticateBasic(c.req.raw, c.env);
   if (basicAuthUser) {

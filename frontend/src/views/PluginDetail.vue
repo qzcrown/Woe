@@ -113,7 +113,7 @@
               <h2 class="section-title">{{ $t('pluginDetail.configuration') }}</h2>
               <div class="config-actions">
                 <button
-                  @click="editMode = !editMode"
+                  @click="editMode ? cancelEdit() : startEdit()"
                   :class="['config-mode-btn', editMode ? 'cancel-btn' : 'edit-btn']"
                 >
                   {{ editMode ? $t('common.cancel') : $t('common.edit') }}
@@ -353,18 +353,24 @@ const togglePlugin = async () => {
   }
 }
 
+const startEdit = () => {
+  editMode.value = true
+}
+
+const cancelEdit = () => {
+  editMode.value = false
+}
+
 const saveConfig = async () => {
   if (!plugin.value) return
-
   savingConfig.value = true
-
   try {
     await pluginApi.updateConfig(pluginId.value, configText.value)
     config.value = configText.value
     editMode.value = false
     showSuccess(t('pluginDetail.configSaved'))
-  } catch (err: any) {
-    showError(err, t('pluginDetail.configSaveFailed'))
+  } catch (err: unknown) {
+    showError(err instanceof Error ? err : new Error(String(err)), t('pluginDetail.configSaveFailed'))
   } finally {
     savingConfig.value = false
   }

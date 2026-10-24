@@ -127,7 +127,7 @@ function clientRow(overrides: Record<string, unknown> = {}) {
     userId: 7,
     token: 'C-client-token',
     name: 'Pixel 9',
-    platform: 'test-platform',
+    platform: 'fixture_a',
     deviceUid: null,
     deviceToken: null,
     tokenUpdatedAt: null,
@@ -145,9 +145,9 @@ function pluginRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 3,
     userId: 7,
-    name: 'Displayer Instance',
+    name: 'Webhooker Instance',
     token: 'P-plugin-token',
-    modulePath: 'builtin/displayer',
+    modulePath: 'builtin/webhooker',
     enabled: 1,
     icon: null,
     configYaml: '',
@@ -159,7 +159,7 @@ function pluginRow(overrides: Record<string, unknown> = {}) {
 describe('createdAt serialization ', () => {
   beforeAll(() => {
 
-    register('builtin/displayer', () => ({}) as any)
+    register('builtin/webhooker', () => ({}) as any)
   })
 
   beforeEach(() => {
@@ -260,7 +260,7 @@ describe('createdAt serialization ', () => {
     const createResponse = await handlers.createPlugin(1, new Request('http://localhost/plugin', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ modulePath: 'builtin/displayer', name: 'Displayer Instance' })
+      body: JSON.stringify({ modulePath: 'builtin/webhooker', name: 'Webhooker Instance' })
     }))
     const createBody = await createResponse.json() as Record<string, unknown>
     expect(createResponse.status).toBe(200)

@@ -216,6 +216,7 @@ export default {
     unknownApplication: 'Unknown Application',
     applicationNotFound: 'Application not found'
   },
+  messageTags: { title: 'Tags' },
   applications: {
     title: 'Application Management',
     add: 'Add Application',
@@ -382,6 +383,28 @@ export default {
     enabled: 'Enabled',
     toggleDisabledError: 'Failed to change user status: {error}',
     avatarDeleteConfirm: 'Are you sure you want to delete the user avatar?',
+    aiQuota: {
+      title: 'AI task plugins Quota',
+      defaultLimit: 'Default limit',
+      overrideLimit: 'Override',
+      effectiveLimit: 'Effective limit',
+      usageToday: 'Used today',
+      source: 'Source',
+      inherited: 'Default (no override)',
+      disabled: 'Disabled',
+      sourceDefault: 'Default',
+      sourceOverride: 'Override',
+      limitPlaceholder: 'Enter a non-negative integer',
+      set: 'Set limit',
+      clear: 'Clear override',
+      saveSuccess: 'Quota updated',
+      saveError: 'Failed to update quota',
+      loadError: 'Failed to load AI quotas',
+      unavailable: 'Quota service is temporarily unavailable',
+      invalidLimit: 'Quota must be a non-negative integer',
+      emptyLimit: 'Enter a limit, or use Clear override to fall back to the default',
+      zeroHint: 'Set 0 to disable AI task plugins for this user; clear the override to fall back to the default limit.'
+    }
   },
   editApplication: {
     title: 'Edit Application',

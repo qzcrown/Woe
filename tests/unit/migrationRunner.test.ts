@@ -347,8 +347,10 @@ describe("迁移索引完整性（固定 0000 基线与单一 0007）", () => {
     expect(keys).toContain("0011_active_device_token_unique");
 
     expect(keys).toContain("0012_wonderful_random");
+
+    expect(keys).toContain("0013_plugin_jobs");
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys.length).toBe(13);
+    expect(keys.length).toBe(14);
   });
 
   test("0001 末尾 UPDATE 与 0007 三条 SQL 都按断点分隔", () => {

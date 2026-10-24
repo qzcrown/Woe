@@ -12,10 +12,16 @@
 
 import { processClaimedJob } from '../../src/services/push/sendPipeline'
 import { PushOutboxJob } from '../../src/services/push/outboxService'
-import { SUSPEND_RETRY_AT_DELAY_MS } from '../../src/services/push/providers/types'
+import {
+  DEFAULT_PUSH_DELIVERY_POLICY,
+  ProviderResolver,
+  PushDeliveryPolicy,
+  PushPlatform,
+  SUSPEND_RETRY_AT_DELAY_MS
+} from '../../src/services/push/contracts'
 
 
-const T0 = Date.parse('2026-09-24T12:00:00.000Z')
+const T0 = Date.parse('2026-10-19T00:00:00.000Z')
 const now = () => T0
 
 
@@ -23,7 +29,7 @@ function makeTarget(overrides: Record<string, any> = {}) {
   return {
     kind: 'ready',
     clientId: 1,
-    platform: 'test-platform',
+    platform: 'fixture_a',
     deviceToken: 'db-token',
     tokenUpdatedAt: '2026-09-24T00:00:00.000Z',
     tokenStatus: 'active',
@@ -44,15 +50,16 @@ function makeOutbox(lookup: any = makeTarget()) {
 
 
 function makeJob(overrides: Partial<PushOutboxJob> = {}): PushOutboxJob {
+  const platform = overrides.platform ?? 'fixture_a'
   return {
     id: 1,
     userId: 7,
     messageId: 100,
-    platform: 'test-platform',
+    platform,
     clientId: 1,
     payloadJson: JSON.stringify({
       userId: 7,
-      platform: 'test-platform',
+      platform,
       messageId: 100,
       appid: 42,
       date: '2026-09-24T10:00:00.000Z',
@@ -69,17 +76,35 @@ function makeJob(overrides: Partial<PushOutboxJob> = {}): PushOutboxJob {
   }
 }
 
-function makeProviders(send?: jest.Mock) {
+
+
+
+
+
+
+function makeProviders(
+  send?: jest.Mock,
+  options: { platform?: PushPlatform; policies?: Partial<Record<PushPlatform, PushDeliveryPolicy>>; provider?: 'present' | 'missing' } = {}
+) {
+  const platform = options.platform ?? 'fixture_a'
   const sendFn = send ?? jest.fn().mockResolvedValue({ ok: true, retriable: false })
-  return { providers: { get: jest.fn().mockReturnValue({ name: 'test-platform', send: sendFn }) }, send: sendFn }
+  const policies = options.policies ?? {}
+  const provider = options.provider ?? 'present'
+  const providers = {
+    get: jest.fn().mockImplementation((p: PushPlatform) =>
+      provider === 'present' && p === platform ? { name: platform, send: sendFn } : null
+    ),
+    getPolicy: jest.fn().mockImplementation((p: PushPlatform) =>
+      policies[p] ?? { ...DEFAULT_PUSH_DELIVERY_POLICY }
+    )
+  }
+  return { providers, send: sendFn }
 }
 
-function makeDeps(outbox: ReturnType<typeof makeOutbox>, providers: { get: jest.Mock }, overrides: Record<string, any> = {}) {
+function makeDeps(outbox: ReturnType<typeof makeOutbox>, providers: ProviderResolver, overrides: Record<string, any> = {}) {
   return {
     outbox,
     providers,
-    maxRetries: 3,
-    retryBackoffMs: 2000,
     now,
     ...overrides
   }
@@ -93,7 +118,7 @@ describe('processClaimedJob 发送时解析（新形态载荷，无 deviceToken 
     const deps = makeDeps(outbox, providers)
     const result = await processClaimedJob(deps, makeJob())
 
-    expect(providers.get).toHaveBeenCalledWith('test-platform')
+    expect(providers.get).toHaveBeenCalledWith('fixture_a')
     expect(result).toEqual({ action: 'success' })
     expect(outbox.markSuccess).toHaveBeenCalledWith(1)
 
@@ -108,7 +133,7 @@ describe('processClaimedJob 发送时解析（新形态载荷，无 deviceToken 
     const job = makeJob({
       payloadJson: JSON.stringify({
         userId: 7,
-        platform: 'test-platform',
+        platform: 'fixture_a',
         deviceToken: 'stale-payload-token',
         messageId: 100,
         appid: 42,
@@ -169,8 +194,8 @@ describe('processClaimedJob 发送前闸门（不调 provider，attemptCount 原
     expect(providers.get).not.toHaveBeenCalled()
   })
 
-  test('目标 platform 与行 platform 不一致 → dead Undeliverable: client platform changed（不把 custom platform token 交给 Custom provider）', async () => {
-    const outbox = makeOutbox(makeTarget({ platform: 'test-platform-alt' }))
+  test('目标 platform 与行 platform 不一致 → dead Undeliverable: client platform changed（不把 FixtureB token 交给 FixtureA provider）', async () => {
+    const outbox = makeOutbox(makeTarget({ platform: 'fixture_b' }))
     const { providers } = makeProviders()
 
     const result = await processClaimedJob(makeDeps(outbox, providers), makeJob({ attemptCount: 0 }))
@@ -197,7 +222,7 @@ describe('processClaimedJob legacy 分支（client_id 为空的历史行）', ()
       clientId: null,
       payloadJson: JSON.stringify({
         userId: 7,
-        platform: 'test-platform',
+        platform: 'fixture_a',
         ...payloadExtra,
         messageId: 100,
         appid: 42,
@@ -239,7 +264,7 @@ describe('processClaimedJob 共享 parsePayload', () => {
     const outbox = makeOutbox()
     const { providers } = makeProviders()
     const job = makeJob({
-      payloadJson: JSON.stringify({ userId: 7, platform: 'test-platform', message: 'world' })
+      payloadJson: JSON.stringify({ userId: 7, platform: 'fixture_a', message: 'world' })
     })
 
     const result = await processClaimedJob(makeDeps(outbox, providers), job)
@@ -263,7 +288,7 @@ describe('processClaimedJob 共享 parsePayload', () => {
     const { providers } = makeProviders()
     const job = makeJob({
       payloadJson: JSON.stringify({
-        userId: 7, platform: 'test-platform', messageId: 999, appid: 42,
+        userId: 7, platform: 'fixture_a', messageId: 999, appid: 42,
         date: '2026-09-24T10:00:00.000Z', message: 'world'
       })
     })
@@ -279,9 +304,9 @@ describe('processClaimedJob 共享 parsePayload', () => {
     const outbox = makeOutbox()
     const { providers } = makeProviders()
     const job = makeJob({
-      platform: 'test-platform',
+      platform: 'fixture_a',
       payloadJson: JSON.stringify({
-        userId: 7, platform: 'test-platform-alt', messageId: 100, appid: 42,
+        userId: 7, platform: 'fixture_b', messageId: 100, appid: 42,
         date: '2026-09-24T10:00:00.000Z', message: 'world'
       })
     })
@@ -296,7 +321,7 @@ describe('processClaimedJob 共享 parsePayload', () => {
     const { providers } = makeProviders()
     const job = makeJob({
       payloadJson: JSON.stringify({
-        userId: 99, platform: 'test-platform', messageId: 100, appid: 42,
+        userId: 99, platform: 'fixture_a', messageId: 100, appid: 42,
         date: '2026-09-24T10:00:00.000Z', message: 'world'
       })
     })
@@ -310,26 +335,118 @@ describe('processClaimedJob 共享 parsePayload', () => {
 describe('processClaimedJob provider 挂起语义（沿用现有文案与共享固定延迟）', () => {
   test('无 provider → suspend（T0 + 60s），不计尝试次数', async () => {
     const outbox = makeOutbox()
-    const providers = { get: jest.fn().mockReturnValue(null) }
+    const { providers } = makeProviders(undefined, { provider: 'missing' })
 
     const result = await processClaimedJob(makeDeps(outbox, providers), makeJob({ attemptCount: 2 }))
 
     expect(result).toEqual({ action: 'suspend' })
-    expect(outbox.suspend).toHaveBeenCalledWith(1, new Date(T0 + SUSPEND_RETRY_AT_DELAY_MS).toISOString(), 'Suspended: no provider for platform test-platform')
+    expect(outbox.suspend).toHaveBeenCalledWith(1, new Date(T0 + SUSPEND_RETRY_AT_DELAY_MS).toISOString(), 'Suspended: no provider for platform fixture_a')
     expect(outbox.markDead).not.toHaveBeenCalled()
   })
 
-  test('PROVIDER_CONFIG_MISSING → suspend 且原错误信息进 lastError', async () => {
+  test('failureKind suspend → suspend，固定 +60s 且不加 attempt', async () => {
     const outbox = makeOutbox()
     const { providers } = makeProviders(
-      jest.fn().mockResolvedValue({ ok: false, retriable: false, suspend: true, errorCode: 'PROVIDER_CONFIG_MISSING', errorMessage: 'config missing' })
+      jest.fn().mockResolvedValue({ ok: false, retriable: false, failureKind: 'suspend', errorCode: 'FIXTURE_CONFIG_MISSING', errorMessage: 'config missing' })
     )
 
-    const result = await processClaimedJob(makeDeps(outbox, providers), makeJob())
+    const result = await processClaimedJob(makeDeps(outbox, providers), makeJob({ attemptCount: 4 }))
 
     expect(result).toEqual({ action: 'suspend' })
     expect(outbox.suspend).toHaveBeenCalledWith(1, new Date(T0 + SUSPEND_RETRY_AT_DELAY_MS).toISOString(), 'Suspended: config missing')
     expect(outbox.markDead).not.toHaveBeenCalled()
+  })
+})
+
+describe('processClaimedJob 策略来自 resolver.getPolicy（默认 3/2000，按平台隔离）', () => {
+  test('default policy retries the first failure after 2000ms', async () => {
+    const outbox = makeOutbox()
+    const { providers } = makeProviders(
+      jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'temporary failure' })
+    )
+    const job = makeJob({ attemptCount: 0 })
+
+    const result = await processClaimedJob(makeDeps(outbox, providers), job)
+
+    expect(result.action).toBe('retry')
+    expect(outbox.scheduleRetry).toHaveBeenCalledWith(job.id, 1, '2026-10-19T00:00:02.000Z', 'temporary failure')
+    expect(outbox.markDead).not.toHaveBeenCalled()
+    expect(providers.getPolicy).toHaveBeenCalledWith('fixture_a')
+  })
+
+  test('默认策略稳定目标 retriable attempt=0/1/2 → retry(+2000,1)/retry(+4000,2)/dead(3)', async () => {
+    const cases = [
+      { attemptCount: 0, action: 'retry' as const, retryAt: '2026-10-19T00:00:02.000Z', attempt: 1 },
+      { attemptCount: 1, action: 'retry' as const, retryAt: '2026-10-19T00:00:04.000Z', attempt: 2 },
+      { attemptCount: 2, action: 'dead' as const, retryAt: null, attempt: 3 }
+    ]
+    for (const c of cases) {
+      const outbox = makeOutbox()
+      const { providers } = makeProviders(
+        jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
+      )
+
+      const result = await processClaimedJob(makeDeps(outbox, providers), makeJob({ attemptCount: c.attemptCount }))
+
+      expect(result.action).toBe(c.action)
+      if (c.action === 'retry') {
+        expect(outbox.scheduleRetry).toHaveBeenCalledWith(1, c.attempt, c.retryAt, 'network')
+        expect(outbox.markDead).not.toHaveBeenCalled()
+      } else {
+        expect(outbox.markDead).toHaveBeenCalledWith(1, c.attempt, 'network')
+        expect(outbox.scheduleRetry).not.toHaveBeenCalled()
+      }
+    }
+  })
+
+  test('策略按平台从 resolver 读取：平台 A 5/7000 时 FixtureB 行仍用 3/2000', async () => {
+    const makeResolver = () => {
+      const sends: Record<string, jest.Mock> = {
+        fixture_a: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' }),
+        fixture_b: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
+      }
+      return {
+        get: jest.fn().mockImplementation((p: PushPlatform) => ({ name: p, send: sends[p] })),
+        getPolicy: jest.fn().mockImplementation((p: PushPlatform) =>
+          p === 'fixture_a' ? { maxRetries: 5, retryBackoffMs: 7000 } : { ...DEFAULT_PUSH_DELIVERY_POLICY }
+        )
+      }
+    }
+
+
+    const fixture_aOutbox = makeOutbox()
+    const fixture_aResolver = makeResolver()
+    const fixture_aResult = await processClaimedJob(
+      makeDeps(fixture_aOutbox, fixture_aResolver),
+      makeJob({ platform: 'fixture_a', attemptCount: 3 })
+    )
+    expect(fixture_aResult.action).toBe('retry')
+    expect(fixture_aOutbox.scheduleRetry).toHaveBeenCalledWith(1, 4, new Date(T0 + 7000 * 4).toISOString(), 'network')
+
+
+    const fixture_bOutbox = makeOutbox(makeTarget({ platform: 'fixture_b' }))
+    const fixture_bResolver = makeResolver()
+    const fixture_bResult = await processClaimedJob(
+      makeDeps(fixture_bOutbox, fixture_bResolver),
+      makeJob({ platform: 'fixture_b', attemptCount: 2 })
+    )
+    expect(fixture_bResult).toEqual({ action: 'dead' })
+    expect(fixture_bOutbox.markDead).toHaveBeenCalledWith(1, 3, 'network')
+    expect(fixture_bOutbox.scheduleRetry).not.toHaveBeenCalled()
+    expect(fixture_bResolver.getPolicy).toHaveBeenCalledWith('fixture_b')
+  })
+
+  test('500ms 退避下限保留（策略退避 < 500 时按 500 计算）', async () => {
+    const outbox = makeOutbox()
+    const { providers } = makeProviders(
+      jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' }),
+      { policies: { fixture_a: { maxRetries: 3, retryBackoffMs: 100 } } }
+    )
+
+    const result = await processClaimedJob(makeDeps(outbox, providers), makeJob({ attemptCount: 0 }))
+
+    expect(result.action).toBe('retry')
+    expect(outbox.scheduleRetry).toHaveBeenCalledWith(1, 1, new Date(T0 + 500).toISOString(), 'network')
   })
 })
 
@@ -351,17 +468,19 @@ describe('processClaimedJob 失败分类', () => {
     expect(outbox.markDead).not.toHaveBeenCalled()
   })
 
-  test('退避按尝试次数线性放大：attemptCount=2 → T0 + backoff*3', async () => {
+  test('退避按尝试次数线性放大：attemptCount=1 → nextAttempt=2 → T0 + backoff*2', async () => {
     const outbox = makeOutbox()
     const { providers } = makeProviders(
       jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
     )
 
-    const result = await processClaimedJob(makeDeps(outbox, providers), makeJob({ attemptCount: 2 }))
+    const result = await processClaimedJob(makeDeps(outbox, providers), makeJob({ attemptCount: 1 }))
 
+    expect(result.action).toBe('retry')
     if (result.action === 'retry') {
-      expect(result.nextRetryAt).toBe(new Date(T0 + 2000 * 3).toISOString())
+      expect(result.nextRetryAt).toBe(new Date(T0 + 2000 * 2).toISOString())
     }
+    expect(outbox.scheduleRetry).toHaveBeenCalledWith(1, 2, new Date(T0 + 2000 * 2).toISOString(), 'network')
   })
 
   test('retriable 但达到上限 → markDead(nextAttempt)', async () => {
@@ -393,32 +512,33 @@ describe('processClaimedJob 失败分类', () => {
   test('错误信息缺省时回落 errorCode，再回落 Push send failed', async () => {
     const outbox = makeOutbox()
     const { providers } = makeProviders(
-      jest.fn().mockResolvedValue({ ok: false, retriable: false, errorCode: 'PROVIDER_NOT_IMPLEMENTED' })
+      jest.fn().mockResolvedValue({ ok: false, retriable: false, errorCode: 'FIXTURE_NOT_IMPLEMENTED' })
     )
 
     await processClaimedJob(makeDeps(outbox, providers), makeJob())
 
-    expect(outbox.markDead).toHaveBeenCalledWith(1, 1, 'PROVIDER_NOT_IMPLEMENTED')
+    expect(outbox.markDead).toHaveBeenCalledWith(1, 1, 'FIXTURE_NOT_IMPLEMENTED')
   })
 })
 
-describe('processClaimedJob PROVIDER_INVALID_TOKEN token 失效立即收敛', () => {
+describe('processClaimedJob invalid-target 失效立即收敛（基于 failureKind 分类）', () => {
   test('invalidateClient 存在 → 认领失效后直接 markDead，不被目标变化守卫复活为 pending', async () => {
     const outbox = makeOutbox()
     const { providers } = makeProviders(
       jest.fn().mockResolvedValue({
         ok: false,
         retriable: false,
-        invalidateToken: true, errorCode: 'PROVIDER_INVALID_TOKEN',
-        errorMessage: 'provider rejected token'
+        failureKind: 'invalid-target',
+        errorCode: 'FIXTURE_PUSH_FIXTURE_INVALID_TARGET',
+        errorMessage: 'Push send failed (HTTP 200, code FIXTURE_INVALID_TARGET): all tokens invalid'
       })
     )
 
     const result = await processClaimedJob(makeDeps(outbox, providers), makeJob())
 
     expect(result).toEqual({ action: 'dead' })
-    expect(outbox.invalidateClient).toHaveBeenCalledWith(1, expect.stringContaining('provider rejected token'))
-    expect(outbox.markDead).toHaveBeenCalledWith(1, 1, 'provider rejected token')
+    expect(outbox.invalidateClient).toHaveBeenCalledWith(1, expect.stringContaining('Invalid push token:'))
+    expect(outbox.markDead).toHaveBeenCalledWith(1, 1, 'Push send failed (HTTP 200, code FIXTURE_INVALID_TARGET): all tokens invalid')
 
     expect(outbox.scheduleRetry).not.toHaveBeenCalled()
     expect(outbox.getPushTargetByClientId).toHaveBeenCalledTimes(1)
@@ -428,13 +548,54 @@ describe('processClaimedJob PROVIDER_INVALID_TOKEN token 失效立即收敛', ()
     const outbox = makeOutbox()
     delete (outbox as any).invalidateClient
     const { providers } = makeProviders(
-      jest.fn().mockResolvedValue({ ok: false, retriable: false, invalidateToken: true, errorCode: 'PROVIDER_INVALID_TOKEN' })
+      jest.fn().mockResolvedValue({ ok: false, retriable: false, failureKind: 'invalid-target', errorCode: 'FIXTURE_PUSH_FIXTURE_INVALID_TARGET' })
     )
 
     const result = await processClaimedJob(makeDeps(outbox, providers), makeJob())
 
     expect(result).toEqual({ action: 'dead' })
-    expect(outbox.markDead).toHaveBeenCalledWith(1, 1, 'PROVIDER_INVALID_TOKEN')
+    expect(outbox.markDead).toHaveBeenCalledWith(1, 1, 'FIXTURE_PUSH_FIXTURE_INVALID_TARGET')
+  })
+
+  test('invalid-target without invalidator retains target-change guard（发送期间目标变化 → retry）', async () => {
+    const outbox = makeOutbox()
+    delete (outbox as any).invalidateClient
+    outbox.getPushTargetByClientId
+      .mockResolvedValueOnce(makeTarget())
+      .mockResolvedValueOnce(makeTarget({ deviceToken: 'rotated-token' }))
+    const { providers } = makeProviders(
+      jest.fn().mockResolvedValue({
+        ok: false,
+        retriable: false,
+        failureKind: 'invalid-target',
+        errorCode: 'FIXTURE_PUSH_FIXTURE_INVALID_TARGET',
+        errorMessage: 'invalid target'
+      })
+    )
+
+    const result = await processClaimedJob(makeDeps(outbox, providers), makeJob({ attemptCount: 0 }))
+
+    expect(result.action).toBe('retry')
+    expect(outbox.scheduleRetry).toHaveBeenCalledWith(
+      1, 1, expect.any(String), expect.stringContaining('client target changed during send')
+    )
+    expect(outbox.markDead).not.toHaveBeenCalled()
+
+    expect(outbox.getPushTargetByClientId).toHaveBeenCalledTimes(2)
+  })
+
+  test('相同 errorCode 不带 failureKind 不触发厂商特例（走普通永久失败守卫 → dead）', async () => {
+    const outbox = makeOutbox()
+    const { providers } = makeProviders(
+      jest.fn().mockResolvedValue({ ok: false, retriable: false, errorCode: 'FIXTURE_PUSH_FIXTURE_INVALID_TARGET' })
+    )
+
+    const result = await processClaimedJob(makeDeps(outbox, providers), makeJob())
+
+    expect(result).toEqual({ action: 'dead' })
+    expect(outbox.invalidateClient).not.toHaveBeenCalled()
+    expect(outbox.markDead).toHaveBeenCalledWith(1, 1, 'FIXTURE_PUSH_FIXTURE_INVALID_TARGET')
+    expect(outbox.scheduleRetry).not.toHaveBeenCalled()
   })
 })
 
@@ -476,9 +637,9 @@ describe('processClaimedJob 发送期间目标变化守卫（仅将判 dead 的�
     expect(outbox.markDead).not.toHaveBeenCalled()
   })
 
-  test('平台变化（test-platform → test-platform-alt）→ scheduleRetry', async () => {
+  test('平台变化（fixture_a → fixture_b）→ scheduleRetry', async () => {
     const outbox = makeOutbox()
-    const send = failOnceThenChangeTarget(outbox, makeTarget({ platform: 'test-platform-alt' }))
+    const send = failOnceThenChangeTarget(outbox, makeTarget({ platform: 'fixture_b' }))
     const { providers } = makeProviders(send)
 
     const result = await processClaimedJob(makeDeps(outbox, providers), makeJob())
@@ -517,7 +678,7 @@ describe('processClaimedJob 发送期间目标变化守卫（仅将判 dead 的�
     const job = makeJob({
       clientId: null,
       payloadJson: JSON.stringify({
-        userId: 7, platform: 'test-platform', deviceToken: 'legacy-token', messageId: 100,
+        userId: 7, platform: 'fixture_a', deviceToken: 'legacy-token', messageId: 100,
         appid: 42, date: '2026-09-24T10:00:00.000Z', message: 'world'
       })
     })

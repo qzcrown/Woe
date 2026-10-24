@@ -93,7 +93,7 @@ function seedOutbox(
   const base: typeof pushOutbox.$inferInsert = {
     userId: 7,
     messageId,
-    platform: 'test-platform',
+    platform: 'fixture_a',
     clientId: 11,
     payloadJson: '{"title":"t"}',
     status: 'pending',

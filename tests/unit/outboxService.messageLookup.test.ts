@@ -27,9 +27,9 @@ describe('PushOutboxService message lookup helpers', () => {
               id: 33,
               userId: 7,
               messageId: 101,
-              platform: 'test-platform',
+              platform: 'fixture_a',
               clientId: 1,
-              payloadJson: '{"message":"x","platform":"test-platform","deviceToken":"t"}',
+              payloadJson: '{"message":"x","platform":"fixture_a","deviceToken":"t"}',
               status: 'pending',
               attemptCount: 0,
               nextRetryAt: null,
@@ -46,6 +46,6 @@ describe('PushOutboxService message lookup helpers', () => {
     const job = await outbox.getJobById(33)
 
     expect(job?.id).toBe(33)
-    expect(job?.platform).toBe('test-platform')
+    expect(job?.platform).toBe('fixture_a')
   })
 })

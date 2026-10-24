@@ -24,7 +24,7 @@ const CORE_BASELINE_TABLES = [
   "system_state",
 ] as const;
 
-const MIGRATION_REQUIREMENTS: Record<string, {
+export const MIGRATION_REQUIREMENTS: Record<string, {
   tables?: string[];
   indexes?: string[];
   columns?: Record<string, string[]>;
@@ -72,6 +72,32 @@ const MIGRATION_REQUIREMENTS: Record<string, {
   "0012_wonderful_random": {
     columns: { clients: ["expires_after_inactivity_seconds", "expires_at"] },
     indexes: ["clients_expires_at_idx"],
+  },
+  "0013_plugin_jobs": {
+    tables: ["plugin_jobs"],
+    columns: {
+      plugin_jobs: [
+        "id",
+        "user_id",
+        "plugin_id",
+        "subject_type",
+        "subject_id",
+        "payload",
+        "status",
+        "result",
+        "last_error_code",
+        "last_error_message",
+        "created_at",
+        "updated_at",
+        "completed_at",
+      ],
+      plugin_configs: ["encrypted_secret", "usage_day", "usage_count"],
+    },
+    indexes: [
+      "plugin_jobs_active_subject_unique",
+      "plugin_jobs_status_created_idx",
+      "plugin_jobs_user_subject_idx",
+    ],
   },
 };
 

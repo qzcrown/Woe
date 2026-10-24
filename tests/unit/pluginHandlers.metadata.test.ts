@@ -64,7 +64,7 @@ describe('PluginHandlers metadata', () => {
         userId: 7,
         name: 'Renamed Plugin',
         token: 'P-token-2',
-        modulePath: 'builtin/displayer',
+        modulePath: 'builtin/webhooker',
         enabled: 1,
         icon: null,
         configYaml: ''
@@ -77,6 +77,6 @@ describe('PluginHandlers metadata', () => {
 
     expect(response.status).toBe(200)
     expect(body).toHaveLength(1)
-    expect(body[0].capabilities).toEqual(['displayer'])
+    expect(body[0].capabilities).toEqual(['webhooker', 'messenger'])
   })
 })

@@ -74,7 +74,7 @@ export type PushTargetLookup =
       kind: "ready" | "inactive" | "no-token";
       clientId: number;
 
-      platform: string | "unknown";
+      platform: string;
       deviceToken: string | null;
       tokenUpdatedAt: string | null;
       tokenStatus: string;
@@ -251,7 +251,7 @@ export class PushOutboxService {
 
     const snapshot = {
       clientId,
-      platform: (row.platform || "unknown") as string | "unknown",
+      platform: (row.platform || "unknown") as string,
       deviceToken: row.deviceToken ?? null,
       tokenUpdatedAt: row.tokenUpdatedAt ?? null,
       tokenStatus: row.tokenStatus

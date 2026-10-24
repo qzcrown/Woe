@@ -6,8 +6,11 @@
 
 import { parse } from 'yaml'
 import { ExecutablePlugin, PluginContext, FilterConfig } from './types.ts'
+import type { PluginEventOutcome, PluginJobsAccess, PluginJobsFactory } from './jobs/types.ts'
 import { register as reg, resolve as res } from './registry.ts'
 import { createDisplayer } from './builtin/displayer.ts'
+import { createWebhookerPlugin } from './builtin/webhooker/definition.ts'
+import { WEBHOOKER_MODULE_PATH } from './builtin/webhooker/config.ts'
 import { DrizzleDB } from '../drizzle/index.ts'
 import { pluginConfigs, pluginLogs, userPluginPermissions, users } from '../models/index.ts'
 import { eq, and, inArray } from 'drizzle-orm'
@@ -15,10 +18,25 @@ import { evaluateFilter } from './filter.ts'
 import { PushOutboxService } from '../services/push/outboxService.ts'
 
 
+reg(WEBHOOKER_MODULE_PATH, createWebhookerPlugin)
 reg('builtin/displayer', createDisplayer)
 
 
 export type PluginEvent = 'message.create' | 'message.delete' | 'application.create' | 'client.create'
+
+
+type PluginSkipCodeOrConfig = Extract<PluginEventOutcome, { status: 'skipped' }>['code']
+
+
+
+
+
+
+const unconfiguredJobsAccess: PluginJobsAccess = {
+  async enqueue() {
+    throw new Error('plugin jobs are not configured')
+  }
+}
 
 
 export class PluginManager {
@@ -26,7 +44,14 @@ export class PluginManager {
 
   private filterCache: Map<number, FilterConfig | undefined> = new Map()
 
-  constructor(private drizzle: DrizzleDB) {}
+
+
+  private jobsCache: Map<number, PluginJobsAccess> = new Map()
+
+  constructor(
+    private drizzle: DrizzleDB,
+    private options: { jobs?: PluginJobsFactory } = {}
+  ) {}
 
   private async isUserAdmin(userId: number): Promise<boolean> {
     try {
@@ -123,12 +148,27 @@ export class PluginManager {
         continue
       }
 
+
+
+
+      let jobs: PluginJobsAccess
+      try {
+        jobs = this.options.jobs
+          ? this.options.jobs({ userId, pluginId: p.id })
+          : unconfiguredJobsAccess
+      } catch {
+
+        console.error(`[Plugin Jobs Factory Error] plugin=${p.name}`)
+        jobs = unconfiguredJobsAccess
+      }
       await p.init({
         config: conf,
         pushOutbox: {
           enqueueForUserDevices: (input) => pushOutboxService.enqueueForUserDevices(input)
-        }
+        },
+        jobs
       })
+      this.jobsCache.set(p.id, jobs)
       plugins.push(p)
 
 
@@ -146,6 +186,7 @@ export class PluginManager {
     if (plugins) {
       for (const p of plugins) {
         this.filterCache.delete(p.id)
+        this.jobsCache.delete(p.id)
       }
     }
     this.cache.delete(userId)
@@ -160,6 +201,16 @@ export class PluginManager {
       let errMsg = ''
       let handlerExecuted = false
 
+
+      let skipCode: PluginSkipCodeOrConfig | null = null
+
+
+
+      const pluginCtx: PluginContext = {
+        ...ctx,
+        jobs: this.jobsCache.get(p.id) ?? unconfiguredJobsAccess
+      }
+
       try {
         switch (event) {
           case 'message.create':
@@ -167,7 +218,7 @@ export class PluginManager {
 
               const filterConfig = this.filterCache.get(p.id)
               if (filterConfig) {
-                const filterResult = evaluateFilter(filterConfig, ctx)
+                const filterResult = evaluateFilter(filterConfig, pluginCtx)
 
                 if (!filterResult.allowed) {
 
@@ -181,8 +232,12 @@ export class PluginManager {
                   break
                 }
               }
-              await p.onMessageCreate(ctx)
+
               handlerExecuted = true
+              const outcome = await p.onMessageCreate(pluginCtx)
+              if (outcome?.status === 'skipped') {
+                skipCode = outcome.code
+              }
             }
             break
           case 'message.delete':
@@ -190,7 +245,7 @@ export class PluginManager {
 
               const filterConfig = this.filterCache.get(p.id)
               if (filterConfig) {
-                const filterResult = evaluateFilter(filterConfig, ctx)
+                const filterResult = evaluateFilter(filterConfig, pluginCtx)
 
                 if (!filterResult.allowed) {
 
@@ -204,26 +259,32 @@ export class PluginManager {
                   break
                 }
               }
-              await p.onMessageDelete(ctx)
+              await p.onMessageDelete(pluginCtx)
               handlerExecuted = true
             }
             break
           case 'application.create':
             if (p.onApplicationCreate) {
-              await p.onApplicationCreate(ctx)
+              await p.onApplicationCreate(pluginCtx)
               handlerExecuted = true
             }
             break
           case 'client.create':
             if (p.onClientCreate) {
-              await p.onClientCreate(ctx)
+              await p.onClientCreate(pluginCtx)
               handlerExecuted = true
             }
             break
         }
       } catch (e) {
         status = 'error'
-        errMsg = e instanceof Error ? e.message : 'unknown'
+        if (event === 'message.create') {
+
+          errMsg = 'plugin-handler-error'
+          console.error(`[Plugin Handler Error] plugin=${p.name} event=${event}`, e)
+        } else {
+          errMsg = e instanceof Error ? e.message : 'unknown'
+        }
       }
 
       const duration = Date.now() - start
@@ -237,6 +298,12 @@ export class PluginManager {
 
       if (status === 'error' && errMsg.includes('Filter evaluation error')) {
         console.error(`[Plugin Filter Error] plugin=${p.name} event=${event} error=${errMsg}`)
+        continue
+      }
+
+
+      if (skipCode) {
+        console.log(`[Plugin Skipped] plugin=${p.name} event=${event} code=${skipCode}`)
         continue
       }
 

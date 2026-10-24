@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs'
 import { parse } from 'yaml'
+import type { MessageJobView } from '../src/routes/messageJobs.ts'
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
@@ -9,6 +10,8 @@ export interface Endpoint {
 }
 
 export const expected: Endpoint[] = [
+  { path: '/admin/quotas/{namespace}/{userId}', methods: ['PUT'] },
+  { path: '/admin/quotas/{namespace}/users', methods: ['GET'] },
   { path: '/application', methods: ['GET', 'POST'] },
   { path: '/application/{id}', methods: ['DELETE', 'GET', 'PUT'] },
   { path: '/application/{id}/image', methods: ['DELETE', 'POST'] },
@@ -29,6 +32,7 @@ export const expected: Endpoint[] = [
   { path: '/init/status', methods: ['GET'] },
   { path: '/message', methods: ['DELETE', 'GET', 'POST'] },
   { path: '/message/{id}', methods: ['DELETE', 'GET'] },
+  { path: '/message/{id}/jobs', methods: ['GET', 'POST'] },
   { path: '/message/count', methods: ['GET'] },
   { path: '/plugin', methods: ['GET', 'POST'] },
   { path: '/plugin/{id}', methods: ['DELETE'] },
@@ -146,6 +150,28 @@ describe('API contract', () => {
 
     expect(applicationSchema?.properties?.sortKey?.type).toBe('string')
     expect(applicationParamsSchema?.properties?.sortKey?.type).toBe('string')
+  })
+
+  test('MessageJobView keys match the documented MessageJob schema exactly', () => {
+
+    const viewKeys = Object.keys({
+      jobId: 0,
+      pluginId: 0,
+      status: 'pending',
+      result: null,
+      error: null,
+      createdAt: null,
+      completedAt: null
+    } satisfies MessageJobView).sort()
+
+    const document = parse(readFileSync('tests/fixtures/api-contract.yaml', 'utf8')) as {
+      components?: { schemas?: Record<string, { properties?: Record<string, unknown> }> }
+    }
+    const documentedKeys = Object.keys(
+      document.components?.schemas?.MessageJob?.properties ?? {}
+    ).sort()
+
+    expect(viewKeys).toEqual(documentedKeys)
   })
 
   test('api-contract fixture documents plugin metadata fields on PluginConf', () => {

@@ -1,32 +1,21 @@
-# Woe Deployment Guide (Cloudflare Workers)
+# Woe Deployment Guide
 
-This guide covers a fresh deployment: create the Cloudflare resources, configure the Worker, build the frontend, deploy the Worker, initialize the administrator, and verify the service. Upgrade and rollback instructions are at the end.
+Run this guide from the root of the selected release source.
 
-Prerequisites:
+## 1. Create resources
 
-- A Cloudflare account and Wrangler login (`npx wrangler login`); Workers, D1, R2, Durable Objects, Queues, and Images are subject to your account plan and quotas
-- Node.js ≥ 22.12 and npm
-- A clone of this repository with dependencies installed: `npm ci` at the repository root and `npm ci` in `frontend/`
-
-## 1. Create Cloudflare resources
+Prerequisites: Node.js ≥22.12, a Cloudflare account, and access to Workers, D1, R2, Queues, Images and SQLite-backed Durable Objects under that account's plan and quotas.
 
 ```bash
-# D1 database (save the database_id, which is a UUID)
+npm ci
+npm --prefix frontend ci
+npx wrangler login
 npx wrangler d1 create woe-db
-
-# R2 bucket for application, user, and plugin icons
 npx wrangler r2 bucket create woe-storage
-
-# Optional: create this only when a push transport plugin is installed or implemented.
-# The public build ships only displayer and produces no push_outbox jobs by default.
-npx wrangler queues create woe-push-queue
+npx wrangler queues create woe-plugin-jobs
 ```
 
-The Durable Object (`MessageStreamHubObject`) does not need to be created separately. The first `wrangler deploy` applies the `v1_message_stream_hub` / `new_sqlite_classes` migration and creates the SQLite-backed DO class; later deployments must retain the binding and migration history.
-
-The `[images]` section is the Worker Images optimization binding used to compress/transform images before storing them in R2; it does not require a separate Images storage resource.
-
-The public build contains only `displayer`, with no webhook or mobile-push transport plugin, so it does not write `push_outbox` jobs by default. Queue is retained as an asynchronous extension point. If you deploy the example configuration unchanged, create and keep the Queue. For the default public functionality, you may remove the `[[queues.producers]]` and `[[queues.consumers]]` blocks; the message API and WebSocket stream still work. Restore the Queue binding when installing a custom transport plugin.
+Record the D1 UUID. The first deployment creates MessageStreamHubObject through the DO [[migrations]] declaration; it needs no separate creation command. Images uses a Worker binding, without a separate Images storage resource.
 
 ## 2. Configure wrangler.toml
 
@@ -34,145 +23,112 @@ The public build contains only `displayer`, with no webhook or mobile-push trans
 cp example.wrangler.toml wrangler.toml
 ```
 
-Required changes:
+Replace database_id with the real UUID and ensure bucket_name matches the actual R2 bucket. Set workers_dev=true or configure a custom domain through [[routes]]. The template disables workers.dev, so leaving both access methods unconfigured will not expose the service.
 
-| Setting | Description |
-|---|---|
-| `database_id` | Replace with the UUID returned by `wrangler d1 create` in step 1. The placeholder `00000000-0000-0000-0000-000000000000` is not usable. |
-| `workers_dev` | Set to `true` to use a `*.workers.dev` hostname, or remove it and configure `[[routes]]` for a custom domain. |
-| `name` | The Worker name shown in the Cloudflare dashboard. |
+The template retains DB/R2/IMAGES/ASSETS/MESSAGE_STREAM_HUB and Webhooker's PLUGIN_JOB_QUEUE producer/consumer. Queue settings are max_batch_size=1, max_retries=2 and max_concurrency=1: the first attempt plus two retries, for three attempts in total. Concurrency limits do not guarantee ordering or exactly-once delivery.
 
-Optional settings include `REGISTRATION` (whether API registration is open; default `false`) and `[observability]` logging and tracing.
+The default queue name is woe-plugin-jobs. If renamed, update the producer, consumer and [vars].PLUGIN_JOB_QUEUE_NAME together. Unknown queue names reach a branch that acknowledges and discards the batch. Default functionality needs no Workers AI (AI binding), QUOTA_KV or push queue (PUSH_QUEUE). Add resources and matching queue-name variables only when implementing extensions that require them.
 
-The public build contains no vendor-specific mobile-push configuration. To add a transport, inject a `PushProvider` implementation from the Worker bootstrap and let that provider own its configuration.
+REGISTRATION defaults to false. Retain the SQL text-module rules, DO migration history and cron. The daily cron removes terminal Plugin Jobs created over 30 days ago and marks pending jobs created over 24 hours ago as dead; it does not resend jobs to the queue. Generic push core and historical tables remain.
 
 ## 3. Set secrets
 
-`DEFAULT_ADMIN_USER` (configured in `[vars]`, default: `admin`) is the bootstrap username; `DEFAULT_ADMIN_PASSWORD` is the bootstrap password set through a Secret. **These credentials only authorize first-time initialization. They do not automatically create an administrator account and cannot be used for everyday sign-in.**
-
-Inject the bootstrap password with the following command (**do not** put it in `[vars]`, because a plaintext password would be exposed with the configuration):
+For the first deployment:
 
 ```bash
-# Use a strong random value. The server rejects known weak values
-# (password / admin / 123456), which cannot trigger initialization.
 npx wrangler secret put DEFAULT_ADMIN_PASSWORD
-
-# The bootstrap username DEFAULT_ADMIN_USER is configured in [vars] (default: admin); it is not a Secret.
+openssl rand -base64 32 | npx wrangler secret put PLUGIN_SECRET_MASTER_KEY
 ```
 
-For local development, use a `.dev.vars` file at the repository root, outside `frontend/` (it is ignored by `.gitignore` and must not be committed):
+Use a strong random bootstrap password; password/admin/123456 are rejected. The plugin master key must decode from base64 to 32 bytes. PLUGIN_SECRET_KEY_VERSION is positive-integer metadata in [vars], defaulting to "1". Saving Webhooker configuration validates the master key even when authToken is omitted.
 
-```text
-DEFAULT_ADMIN_PASSWORD=your-strong-random-password
-```
+Retain the existing master key and version across upgrades; do not generate a new one on each deployment. If replacing the key is necessary, also increase PLUGIN_SECRET_KEY_VERSION and have users enter their real authToken again. Changing the version cannot restore old ciphertext, and *** cannot serve as a new credential. Keep Secrets out of [vars], Git and logs.
 
-`.dev.vars` applies only to a local `wrangler dev` session. Cloud deployments must use `wrangler secret put`; the two mechanisms are independent.
+For local development, put independent test values for DEFAULT_ADMIN_PASSWORD/PLUGIN_SECRET_MASTER_KEY in the ignored root .dev.vars. This file does not synchronize values to the cloud.
 
 ## 4. Build and deploy
 
-Frontend assets are not committed. Build them before deployment:
-
 ```bash
-# Build the frontend, including vue-tsc type checking, into root public/ (the ASSETS directory)
 npm run build:frontend
-
-# Deploy (regenerates buildInfo before uploading the Worker and static assets)
-npx wrangler deploy
-# Equivalent script: npm run deploy
+npx wrangler deploy --dry-run
+npm run deploy
 ```
 
-The Worker runs migrations on the first request: it applies the checked-in `0000_initial_schema` baseline and then the remaining migrations in name order. A fresh D1 does not require `drizzle-kit generate`, `db:push`, or a hand-generated baseline file. A successful migration is reused within the Worker isolate, and concurrent first requests share one migration run.
+build:frontend includes type checking and writes root public/. The deploy script refreshes buildInfo before deployment but does not rebuild the frontend. Direct npx wrangler deploy does not refresh buildInfo. A dry-run checks packaging and configuration parsing; it does not create resources or validate the real deployment.
 
-If migration fails, no business route runs and the request returns HTTP 503:
-
-```json
-{"error":"Database migration failed","code":"DATABASE_MIGRATION_FAILED"}
-```
-
-The response does not expose SQL, file paths, or stack traces. The migration name is logged server-side; a failed state is cleared so a later request can retry.
-
-`0000_initial_schema` is a fixed checked-in baseline. `drizzle-kit generate` remains a development and diagnostic tool, not a production deployment step.
+On the first HTTP request, the Worker automatically applies the fixed 0000_initial_schema baseline and subsequent incremental migrations, including 0013_plugin_jobs. An empty database needs neither db:push nor a manually imported baseline. Migration failure returns 503 DATABASE_MIGRATION_FAILED; details are in Worker logs. Do not delete _migrations or reimport the baseline to repair an inconsistent database.
 
 ## 5. Initialize the administrator
 
-Deployment does not automatically create a default administrator account. After the first deployment, create the first actual administrator through `/setup`:
+Deployment does not create an everyday administrator. DEFAULT_ADMIN_USER (default admin) and the bootstrap password from step 3 only authorize initialization.
 
-1. Open the Worker hostname to reach the `/setup` page.
-2. In the “Initialization Token” username field, enter the configured `DEFAULT_ADMIN_USER` (default: `admin`). In its password field, enter the `DEFAULT_ADMIN_PASSWORD` Secret set in section 3. These credentials only authorize initialization.
-3. In the administrator username, password, and confirmation fields, choose the actual administrator's credentials, such as username `woe-owner` and an independent strong password. The Web UI requires at least 8 characters for the administrator password.
-4. After submission succeeds, sign in to the Web UI with the administrator account created in step 3.
+Open /setup, enter the bootstrap username/password, then choose the actual administrator username and an independent strong password. Sign in with that actual account afterward. Do not use both the same username and password as the bootstrap credentials; the same username with a different password is allowed. Initialization succeeds once; changing bootstrap variables does not change an existing account.
 
-Use a different username and an independent strong password. **Do not reuse both the bootstrap username and password as the administrator's credentials**, because sign-in rejects that exact combination. Using the same username with a different password is allowed.
-
-Alternatively, complete the same flow through the API:
+Equivalent API flow (replace the placeholders):
 
 ```bash
-curl -u "<DEFAULT_ADMIN_USER>:<DEFAULT_ADMIN_PASSWORD>" \
-  -X POST https://<your-domain>/api/v1/init/admin \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"woe-owner","pass":"<independent-strong-administrator-password>"}'
+curl -u '<DEFAULT_ADMIN_USER>:<DEFAULT_ADMIN_PASSWORD>' -X POST 'https://<your-domain>/api/v1/init/admin' \
+  -H 'Content-Type: application/json' -d '{"name":"woe-owner","pass":"<independent-strong-administrator-password>"}'
 ```
 
-The `-u` option contains the bootstrap credentials; the request body fields `name` and `pass` contain the actual administrator's credentials to create. Replace the example placeholders. The API only checks that `name` and `pass` are nonempty, so choose a strong password yourself.
+The API only checks that username/password are nonempty; choose a strong password yourself. The Web UI requires at least 8 characters.
 
-Initialization is one-time: a second request is rejected after success. Changing `DEFAULT_ADMIN_USER` or `DEFAULT_ADMIN_PASSWORD` does not change an existing administrator's username or password; use user management for later account changes.
+## 6. Configure and verify Webhooker
 
-## 6. Verify the deployment
+Administrators have plugin permissions by default. An administrator grants non-administrators access through PUT /user/<userId>/plugin-permissions with body {"modulePaths":["builtin/webhooker","builtin/displayer"]}. This replaces the user's permission list; read the existing list and merge changes first.
 
-```bash
-# Health check (database reachability)
-curl https://<your-domain>/api/v1/health
+Create a Webhooker instance in the browser, save its YAML and explicitly enable it. Minimal configuration:
 
-# Version information (version/commit/buildDate)
-curl https://<your-domain>/api/v1/version
-
-# After signing in, create an application and send a message with its one-time token:
-curl -H "X-Gotify-Key: <app token>" -H 'Content-Type: application/json' \
-  -d '{"title":"hello","message":"world","priority":0}' \
-  https://<your-domain>/api/v1/message
+```yaml
+targetUrl: https://example.com/webhook  # Replace with your verified receiver
+method: POST
+timeoutMs: 5000
+# Enter a real token the first time Bearer authentication is needed.
+# The platform encrypts it; GET configuration reads return a mask.
+# authToken: '<receiver-credential>'
 ```
 
-Message smoke test: create a client (through the Web UI or `POST /client`), connect to `/stream` with its client token, send a message with the application token, and verify that the same message id is received.
+Omit authToken when authentication is unnecessary. GET configuration reads return authToken masked as ***. Keeping `authToken: "***"` on a later save retains the existing ciphertext; it is invalid as a first credential. Removing authToken or setting it to null / an empty string clears the stored credential; entering a real new value replaces it. Legacy plaintext headers.Authorization remains supported, but cannot coexist with authToken and does not receive authToken's encryption or masking protection; prefer the encrypted field. The default body contains pluginId/userId/event/message/at, with appId inside message. Add application names or other data through a custom body template. Keep real message content, credentials and complete production YAML out of Git.
 
-## 8. Upgrade an existing public deployment
+Check /api/v1/health and /api/v1/version first. POST /api/v1/message with an application token and record messageId. Use the owner's Basic credentials or client token with GET /api/v1/message/<messageId>/jobs?pluginId=<pluginId>, and confirm the actual request at the receiver. status=success means the task succeeded; successful message creation, a job row or queue submission alone does not prove delivery.
+
+Webhooker is triggered only by message.create. POST /message/<messageId>/jobs returns 409 Conflict for it (the internal rejection reason is plugin-unavailable; the HTTP response does not expose that code field), so it cannot provide manual redelivery. Duplicate outbound requests are possible; handle duplicates according to the receiving application's requirements. Do not assume exactly-once delivery.
+
+The default policy allows HTTPS only and statically blocks recognizable private/loopback addresses and hostnames. It rejects userinfo/fragment, path traversal and automatic redirects; Webhooker allows query strings. It does not resolve DNS in advance and cannot prevent DNS rebinding: use trusted receiver domains and verify their resolution. For a trusted deployment requiring an internal target, set WEBHOOKER_ALLOW_HTTP / WEBHOOKER_ALLOW_PRIVATE_NETWORK to the string "true" (case-insensitive). The former permits HTTP and the latter permits private networks; redeploy after changes. Values 1/yes/on do not enable either option, and other restrictions still apply.
+
+Also verify that client-token WebSocket receives the same message ID, displayer enable/disable/display, browser sign-in, and icon upload/read/delete. Displayer has no message-event logs, so an empty log is normal. Record real Queue/D1/HTTP and browser results separately; unit tests and dry-run do not replace them.
+
+## 7. Upgrade and rollback
 
 ```bash
-git pull
-npm ci && (cd frontend && npm ci)
+git fetch --tags
+release_tag=vX.Y.Z  # Replace with an actual published public tag
+git switch --detach "$release_tag"
+npx wrangler d1 export woe-db --remote --output ../woe-before-upgrade.sql
+npm ci
+npm --prefix frontend ci
 npm run build:frontend
-npx wrangler deploy
+npm run deploy
 ```
 
-Upgrade notes:
+Merge the new template section by section before deployment, retaining the existing DB/R2 IDs, DO migrations, routes, Secrets and cron. Upgrading from an older displayer-only package requires creating the Plugin Jobs Queue and setting the plugin master key, then creating/granting/configuring/enabling Webhooker; instances are not created automatically. An older synchronous Webhooker becomes asynchronous best-effort delivery. URL/empty-YAML/field-type validation is stricter, so test downstream compatibility.
 
-- Database migrations run automatically and only move forward; they are not rolled back automatically.
-- **Built-in plugins:** the public build contains only `displayer`. If an older database contains plugin configuration rows for removed built-in plugins such as `webhooker`, `push-huawei`, or `push-apns`, those instances cannot load because their module paths no longer resolve and they will not execute. Their configuration rows remain in the database and may be deleted manually.
-- **Existing tasks and queue entries:** the upgrade does not automatically delete existing outbox rows or queued messages. The retained core push pipeline handles them according to its retry and retention behavior. Use the D1 console or `wrangler d1 execute` for explicit cleanup.
-- **Rollback:** redeploy an older Worker version from the Workers dashboard or with `wrangler rollback`. Rollback does not revert the database schema. If a newer migration has run, older code should remain compatible because migrations only add columns or indexes; back up important tables with `wrangler d1 execute <db> --remote --command "SELECT ..."` before deployment when needed.
+Configuration rows for excluded plugins are not deleted automatically, and those instances cannot load. Existing push_outbox rows and queued messages are not automatically emptied: valid pending rows can remain suspended without a provider. Retain them for restoration or perform reviewed manual termination; do not assume automatic cleanup. Migration history and device compatibility fields remain, without automatically deleting historical data.
 
-## 9. Database diagnosis and recovery
+Rollback does not revert the schema. Disable task entry points and handle the backlog first to avoid duplicate outbound requests from new asynchronous jobs and older synchronous plugins. Retain the original master key. Check the older version's schema/ciphertext/password-hash compatibility; do not delete migration records or regenerate the key as a rollback procedure.
 
-Use read-only checks against the remote D1 database:
-
-```bash
-npx wrangler d1 execute woe-db --remote --command "SELECT type, name FROM sqlite_master WHERE type IN ('table','index') ORDER BY type, name;"
-npx wrangler d1 execute woe-db --remote --command "SELECT name, applied_at FROM _migrations ORDER BY id;"
-```
-
-- **Fresh**: no core tables exist and `_migrations` is absent or empty. The Worker applies the fixed baseline and all pending migrations.
-- **Healthy**: all core tables exist and migration records are readable. If `0000_initial_schema` is missing, the Worker records the baseline as adopted without recreating tables.
-- **Inconsistent**: only part of the core schema exists, records disagree with the schema, or a completed migration is missing a required object. The Worker stops and returns 503.
-
-For an empty deployment, create a new D1 and deploy again. For a complete existing schema, upgrade directly. For a data-bearing inconsistent database, back it up and design a manual repair migration. Deployment never drops tables, deletes `_migrations`, or automatically reapplies the baseline.
-
-## 10. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| `/health` returns `red` | Check the D1 binding, `database_id`, and region. |
-| Requests return `503 DATABASE_MIGRATION_FAILED` | Check the migration name in Worker logs, fix D1 access or the reported schema issue, then retry. |
-| The database is reported inconsistent | Back up the database and perform the read-only schema checks below; do not drop tables, delete `_migrations`, or reapply the baseline. |
-| Initialization returns 403 or rejects the password | `DEFAULT_ADMIN_PASSWORD` is a weak value (`password`, `admin`, or `123456`); use a strong random value. |
-| Frontend returns 404 or shows an old page | Run `npm run build:frontend` before deploying; `public/` must be current. |
-| `POST /message` returns 500 | Confirm that `queues.producers` and `queues.consumers` use the same queue binding. |
-| Image upload fails | Check that the R2 bucket name matches `bucket_name` and that the Images binding is enabled. |
+| Saving configuration returns 503 secret-key-unavailable | Master key exists, decodes from base64 to 32 bytes, and its version is a positive integer. |
+| Saving configuration returns 409 secret-reentry-required | The key version changed: enter the real authToken again instead of retaining the old mask. |
+| Job error.code=secret-decrypt-failed | Current master key cannot decrypt the ciphertext; restore the original key or re-enter the real authToken. |
+| Message succeeds but no job appears | Plugin permissions, enabled state, filters, saved configuration and enqueue-rejection logs. |
+| Job failed / enqueue-send-failed | PLUGIN_JOB_QUEUE binding/name; cron does not resend jobs. |
+| outbound-blocked | Target URL and deployment outbound policy; do not bypass it through redirects. |
+| pending does not progress | Queue consumer, actual queue name and Worker logs; checking the producer alone is insufficient. |
+| Database returns 503 | Logs and _migrations/sqlite_master; back up the database and inspect its structure first. |
+| Frontend is stale or returns 404 | Rebuild public/ before deployment; check ASSETS and domain routes. |
+
+GET /message/<id>/jobs returns status/error/result without the task payload. Task snapshots may contain business content and are deleted under terminal retention rules; protect backups as sensitive data.

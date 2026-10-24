@@ -1,10 +1,8 @@
-import { ProviderRegistry } from "./providers/registry.ts";
 import { PushOutboxService } from "./outboxService.ts";
+import { ProviderResolver } from "./contracts.ts";
 import { processClaimedJob } from "./sendPipeline.ts";
 
 interface DispatcherOptions {
-  maxRetries?: number;
-  retryBackoffMs?: number;
   batchSize?: number;
 }
 
@@ -12,8 +10,6 @@ interface DispatcherOptions {
 const MAX_BATCHES_PER_RUN = 10;
 
 export class PushDispatcher {
-  private maxRetries: number;
-  private retryBackoffMs: number;
   private batchSize: number;
 
   constructor(
@@ -21,11 +17,9 @@ export class PushDispatcher {
       PushOutboxService,
       "getDueJobs" | "markProcessing" | "getPushTargetByClientId" | "markSuccess" | "scheduleRetry" | "markDead" | "suspend" | "invalidateClient"
     >,
-    private providers: Pick<ProviderRegistry, "get">,
+    private providers: ProviderResolver,
     options: DispatcherOptions = {}
   ) {
-    this.maxRetries = options.maxRetries ?? 3;
-    this.retryBackoffMs = options.retryBackoffMs ?? 2000;
     this.batchSize = options.batchSize ?? 50;
   }
 
@@ -41,13 +35,9 @@ export class PushDispatcher {
         const locked = await this.outboxService.markProcessing(job.id);
         if (!locked) continue;
 
+
         await processClaimedJob(
-          {
-            outbox: this.outboxService,
-            providers: this.providers,
-            maxRetries: this.maxRetries,
-            retryBackoffMs: this.retryBackoffMs
-          },
+          { outbox: this.outboxService, providers: this.providers },
           job
         );
       }

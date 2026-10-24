@@ -1,7 +1,7 @@
 import { PushOutboxService } from '../../src/services/push/outboxService'
 
 describe('push flow integration', () => {
-  test('enqueueForUserDevices creates pending test-platform outbox rows for active device tokens', async () => {
+  test('enqueueForUserDevices creates pending fixture_a outbox rows for active device tokens', async () => {
 
 
 
@@ -24,7 +24,7 @@ describe('push flow integration', () => {
       messageId: 100,
       appid: 42,
       date: '2026-02-27T10:00:00.000Z',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       title: 'hello',
       message: 'world',
       priority: 5
@@ -52,7 +52,7 @@ describe('push flow integration', () => {
       messageId: 101,
       appid: 42,
       date: '2026-03-11T10:05:00.000Z',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       message: 'world'
     })
 

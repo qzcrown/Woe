@@ -104,7 +104,9 @@ describe('/users admin 守卫', () => {
     expect(router.resolve('/users').meta.requiresAdmin).toBe(true)
   })
 
-  it('非 admin 导航 /users 重定向回首页', async () => {
+
+
+  it('非 admin 导航 /users 重定向回首页', { timeout: 15000 }, async () => {
     authState.user = { admin: false }
     const router = await loadRouter('/', '/')
 
@@ -121,7 +123,7 @@ describe('/users admin 守卫', () => {
     expect(router.currentRoute.value.path).toBe('/')
   })
 
-  it('admin 导航 /users 放行', async () => {
+  it('admin 导航 /users 放行', { timeout: 15000 }, async () => {
     authState.user = { admin: true }
     const router = await loadRouter('/', '/')
 

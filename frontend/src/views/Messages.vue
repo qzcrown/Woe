@@ -104,6 +104,9 @@
               </div>
             </div>
             <p class="message-content">{{ message.message }}</p>
+            <div v-if="getMessageTags(message).length" class="message-tags">
+              <span v-for="tag in getMessageTags(message)" :key="tag" class="message-tag-chip">{{ tag }}</span>
+            </div>
             <div class="message-footer">
               <span class="message-time" :title="formatDateTime(message.date)">{{ formatRelativeTime(message.date) }}</span>
               <span class="message-app-name">{{ getApplicationName(message.appid) }}</span>
@@ -182,6 +185,7 @@ import { showError, showSuccess } from '@/utils/errorHandler'
 import { formatRelativeTime, formatDateTime } from '@/utils/datetime'
 import { browserNotificationService } from '@/services/browserNotification'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
+import { extractMessageTags } from '@/utils/messageTags'
 import type { Application, Message } from '@/types'
 
 const { t } = useI18n()
@@ -260,6 +264,9 @@ const getApplicationName = (appid: number) => {
   const app = applications.value.find(a => a.id === appid)
   return app?.name || t('messages.unknownApplication')
 }
+
+
+const getMessageTags = (message: Message): string[] => extractMessageTags(message.extras)
 
 const refreshMessages = () => {
   return messagesStore.fetchMessages({ limit: 100 })
@@ -633,6 +640,23 @@ const dismissNotificationPrompt = () => {
   font-size: 1rem;
   line-height: 1.6;
   margin-bottom: 1rem;
+}
+
+.message-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: -0.5rem 0 0.875rem;
+}
+
+.message-tag-chip {
+  display: inline-block;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 9999px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .message-footer {

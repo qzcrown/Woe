@@ -1,8 +1,9 @@
 import { PushOutboxJob, PushTargetLookup } from './outboxService.ts';
 import { publishOutboxJobs } from './queuePublisher.ts';
 import { parsePushQueueMessage, PushQueueMessage } from './queueContract.ts';
-import { ProviderSendInput, ProviderSendResult, PushPlatform } from './providers/types.ts';
+import { ProviderResolver } from './contracts.ts';
 import { processClaimedJob } from './sendPipeline.ts';
+
 
 
 
@@ -22,12 +23,8 @@ interface QueueConsumerDeps {
     suspend(id: number, nextRetryAt: string, reason: string): Promise<void>;
     invalidateClient?(clientId: number, reason: string): Promise<void>;
   };
-  providers: {
-    get(platform: PushPlatform): { send(input: ProviderSendInput): Promise<ProviderSendResult> } | null;
-  };
+  providers: ProviderResolver;
   queue: Pick<Queue<PushQueueMessage>, 'sendBatch'>;
-  maxRetries?: number;
-  retryBackoffMs?: number;
 }
 
 
@@ -38,9 +35,6 @@ interface QueueConsumerDeps {
 
 
 export async function consumePushQueueBatch(batch: MessageBatch<unknown>, deps: QueueConsumerDeps): Promise<void> {
-  const maxRetries = deps.maxRetries ?? 3;
-  const retryBackoffMs = deps.retryBackoffMs ?? 2000;
-
   for (const msg of batch.messages) {
     let parsed: PushQueueMessage;
     try {
@@ -68,7 +62,7 @@ export async function consumePushQueueBatch(batch: MessageBatch<unknown>, deps: 
       }
 
       const result = await processClaimedJob(
-        { outbox: deps.outbox, providers: deps.providers, maxRetries, retryBackoffMs },
+        { outbox: deps.outbox, providers: deps.providers },
         job
       );
 

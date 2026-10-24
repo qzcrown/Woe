@@ -3,7 +3,7 @@ const mockUpdatePushState = jest.fn().mockResolvedValue(
     id: 11,
     token: 'Ctoken',
     name: 'Pixel 9',
-    platform: 'test-platform',
+    platform: 'fixture_a',
     deviceUid: 'device-1',
     deviceToken: 'token-1',
     tokenUpdatedAt: '2026-03-11T10:00:00.000Z',
