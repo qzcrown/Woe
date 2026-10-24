@@ -1,14 +1,26 @@
 const cleanupSpy = jest.fn().mockResolvedValue({ success: true, deletedCount: 0 })
 const cleanupOutboxSpy = jest.fn().mockResolvedValue({ success: true, deletedCount: 0 })
+
+const cleanupPluginJobsSpy = jest.fn().mockResolvedValue({
+  success: true,
+  deleted: 0,
+  deadMarked: 0
+})
 const reclaimSpy = jest.fn().mockResolvedValue(0)
 const runOnceSpy = jest.fn().mockResolvedValue(undefined)
 const consumeSpy = jest.fn().mockResolvedValue(undefined)
 const cleanupExpiredClientsSpy = jest.fn().mockResolvedValue(0)
 
+
+const mockRuntimeProviders = { get: jest.fn(), getPolicy: jest.fn() }
+
+const mockCreatePushRuntime = jest.fn().mockResolvedValue({ providers: mockRuntimeProviders })
+
 jest.mock('../../src/services/cleanupService.ts', () => ({
   CleanupService: jest.fn().mockImplementation(() => ({
     cleanupOldPluginLogs: cleanupSpy,
-    cleanupPushOutbox: cleanupOutboxSpy
+    cleanupPushOutbox: cleanupOutboxSpy,
+    cleanupPluginJobs: cleanupPluginJobsSpy
   }))
 }))
 
@@ -18,28 +30,12 @@ jest.mock('../../src/services/push/dispatcher.ts', () => ({
   }))
 }))
 
+jest.mock('../../src/services/push/runtime.ts', () => ({
+  createPushRuntime: (...args: any[]) => mockCreatePushRuntime(...args)
+}))
+
 jest.mock('../../src/drizzle/index.ts', () => ({
   createDrizzle: jest.fn(() => ({ __name: 'drizzle' }))
-}))
-
-jest.mock('../../src/services/push/configService.ts', () => ({
-  PushConfigService: jest.fn().mockImplementation(() => ({
-    getRuntimeConfig: jest.fn().mockResolvedValue({
-      enabledGlobal: true,
-      timeoutMs: 3000,
-      maxRetries: 3,
-      retryBackoffMs: 2000,
-      credentials: {
-        projectId: 'pid',
-        clientId: 'cid',
-        clientSecret: 'secret'
-      }
-    })
-  }))
-}))
-
-jest.mock('../../src/services/push/providers/registry.ts', () => ({
-  createProviderRegistry: jest.fn(() => ({ get: jest.fn() }))
 }))
 
 jest.mock('../../src/services/push/outboxService.ts', () => ({
@@ -70,23 +66,26 @@ jest.mock('../../src/app.ts', () => ({
 }))
 
 import worker from '../../src/index'
+import { PushDispatcher } from '../../src/services/push/dispatcher'
 
 describe('worker queue handler and scheduled', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockCreatePushRuntime.mockResolvedValue({ providers: mockRuntimeProviders })
   })
 
   test('scheduled cleans plugin logs and runs push reconciliation pump', async () => {
-    await worker.scheduled(
-      { cron: '* * * * *' } as any,
-      { DB: {} } as any,
-      {} as any
-    )
+    const env = { DB: {} } as any
+
+    await worker.scheduled({ cron: '* * * * *' } as any, env, {} as any)
 
     expect(cleanupSpy).toHaveBeenCalledWith(30)
     expect(reclaimSpy).toHaveBeenCalledTimes(1)
     expect(runOnceSpy).toHaveBeenCalledTimes(1)
     expect(cleanupOutboxSpy).toHaveBeenCalledWith(30)
+
+    expect(mockCreatePushRuntime).toHaveBeenCalledWith({ __name: 'drizzle' }, env)
+    expect(PushDispatcher).toHaveBeenCalledWith(expect.anything(), mockRuntimeProviders)
   })
 
   test('scheduled triggers expired-client cleanup ', async () => {
@@ -144,9 +143,10 @@ describe('worker queue handler and scheduled', () => {
     expect(runOnceSpy).not.toHaveBeenCalled()
   })
 
-  test('queue handler delegates to queue consumer', async () => {
+  test('queue handler delegates to queue consumer with runtime providers', async () => {
     expect(typeof (worker as any).queue).toBe('function')
 
+    const env = { DB: {}, PUSH_QUEUE: { sendBatch: jest.fn().mockResolvedValue(undefined) } } as any
     const batch = {
       messages: [],
       queue: 'woe-push-queue',
@@ -154,14 +154,28 @@ describe('worker queue handler and scheduled', () => {
       ackAll: jest.fn()
     }
 
-    await (worker as any).queue(batch, {
-      DB: {},
-      PROVIDER_PROJECT_ID: 'pid',
-      PROVIDER_CLIENT_ID: 'cid',
-      PROVIDER_CLIENT_SECRET: 'secret',
-      PUSH_QUEUE: { sendBatch: jest.fn().mockResolvedValue(undefined) }
-    }, {})
+    await (worker as any).queue(batch, env, {})
 
     expect(consumeSpy).toHaveBeenCalledTimes(1)
+    expect(consumeSpy.mock.calls[0][0]).toBe(batch)
+    expect(consumeSpy.mock.calls[0][1].providers).toBe(mockRuntimeProviders)
+    expect(consumeSpy.mock.calls[0][1].queue).toBe(env.PUSH_QUEUE)
+
+    expect(mockCreatePushRuntime).toHaveBeenCalledWith({ __name: 'drizzle' }, env)
+  })
+
+  test('queue handler retries all messages when PUSH_QUEUE binding is missing', async () => {
+    const batch = {
+      messages: [],
+      queue: 'woe-push-queue',
+      retryAll: jest.fn(),
+      ackAll: jest.fn()
+    }
+
+    await (worker as any).queue(batch, { DB: {} }, {})
+
+    expect(batch.retryAll).toHaveBeenCalledTimes(1)
+    expect(consumeSpy).not.toHaveBeenCalled()
+    expect(mockCreatePushRuntime).not.toHaveBeenCalled()
   })
 })

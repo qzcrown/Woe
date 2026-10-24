@@ -61,7 +61,7 @@ info:
     priority precision and strict text binding) are documented in this description;
     implemented routes are not a claim of full behavioral compatibility.
 
-  version: 1.3.6
+  version: 1.3.7
   contact:
     name: Woe API Support
   license:
@@ -1160,7 +1160,6 @@ paths:
                   type: string
                 platform:
                   type: string
-                  enum: [test-platform, test-platform-alt, web, unknown]
                   default: unknown
                 deviceUid:
                   type: string
@@ -2094,6 +2093,212 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /message/{id}/jobs:
+    get:
+      tags: [message, plugin]
+      summary: List plugin jobs for a message
+      description: |
+        Returns the authenticated user's plugin jobs for one message, newest
+        first, at most 20 entries. `pluginId` is an optional positive integer
+        filter. Jobs are listed regardless of how they were created (manual
+        POST or plugin events such as Webhooker's `message.create` delivery);
+        for event-only plugins this API is the read-only observation surface,
+        failures are never retried from here. When the message row no longer
+        exists but jobs remain, the response reports `messageDeleted: true`
+        and returns the history for the job owner (`plugin_jobs.user_id`);
+        non-owners receive 404. `result` is plugin-defined JSON treated as
+        public data. `error` is populated only for `failed`/`dead` jobs;
+        `pending` (including retry) and `success` report `null`. The response
+        never includes the job payload, secrets, prompts, or message content.
+      operationId: listMessageJobs
+      security:
+        - ClientToken: []
+        - BasicAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+        - name: pluginId
+          in: query
+          required: false
+          description: Optional positive integer plugin instance filter.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Message job history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageJobList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [message, plugin]
+      summary: Enqueue a plugin job for a message
+      description: |
+        Queues one plugin job for a message owned by the authenticated user.
+        Application tokens are rejected; client token or Basic auth is
+        required. Enqueue order is fixed: message ownership, plugin ownership,
+        plugin enabled, plugin permission (`user_plugin_permissions`, admins
+        exempt), `message` subject support, manual-trigger gate (tasks
+        declaring `manualTrigger: false` — v1: `builtin/webhooker` — always
+        get 409 `plugin-unavailable` here, before the pending check, so a
+        pending job never turns the call into 202; such tasks are enqueued
+        only by their own plugin events), existing `pending` job (returned
+        as 202 without a quota check), quota check, config validation,
+        optional payload snapshot preparation (`prepareJob`, which may reject
+        the rendered target URL with 409 `outbound-blocked` when it violates
+        the deployment outbound policy), then job insert and queue send. A
+        successful enqueue returns exactly `{ jobId, status }` with HTTP 202.
+        Errors: 404 when the message or plugin is missing/not owned, 409 when
+        the plugin is disabled, not permitted for this user, does not support
+        `message`, opts out of manual triggers, its configuration is invalid,
+        its rendered outbound target is blocked by policy, or its stored
+        secret is unavailable/corrupt, 429 when the daily quota is exhausted,
+        and 503 when quota storage or the queue is unavailable. Concurrent
+        requests hitting the pending-job unique index return the existing job
+        instead of 500.
+      operationId: enqueueMessageJob
+      security:
+        - ClientToken: []
+        - BasicAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pluginId]
+              properties:
+                pluginId:
+                  type: integer
+                  minimum: 1
+                  description: Plugin instance owned by the authenticated user.
+      responses:
+        '202':
+          description: Job accepted (or an existing pending job returned)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageJobAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          description: Daily quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /admin/quotas/{namespace}/users:
+    get:
+      tags: [admin, plugin]
+      summary: List enabled AI task plugin quota rows
+      description: |
+        Admin only (Basic admin or admin client token; elevation is not
+        required). v1 accepts only the `ai` namespace. Returns one row per
+        enabled task plugin instance declaring the `ai` quota namespace with its default limit,
+        per-user override (`null` when absent), effective limit, raw usage
+        counters and `usageToday` computed for the current UTC day. KV or usage
+        read failures return 503 for the whole response (no partial success).
+        Secrets, prompts, message content and raw configuration are never
+        returned.
+      operationId: listAdminQuotas
+      security:
+        - ClientToken: []
+        - BasicAuth: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          description: Quota namespace (v1 only `ai`).
+          schema:
+            type: string
+            enum: [ai]
+      responses:
+        '200':
+          description: Quota rows for enabled AI task plugin instances
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaUserList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /admin/quotas/{namespace}/{userId}:
+    put:
+      tags: [admin, plugin]
+      summary: Set or clear a user quota override
+      description: |
+        Admin only. v1 accepts only the `ai` namespace. `limit` must be a
+        non-negative safe integer or `null`: a positive value sets the daily
+        limit, `0` disables the user, and `null` deletes the override so the
+        effective limit falls back to `system_state.ai_user_daily_limit`.
+        The override is stored in `QUOTA_KV` under `ai:limit:<userId>`; storage
+        failures return 503. User self-service is not supported.
+      operationId: setAdminQuotaOverride
+      security:
+        - ClientToken: []
+        - BasicAuth: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          description: Quota namespace (v1 only `ai`).
+          schema:
+            type: string
+            enum: [ai]
+        - name: userId
+          in: path
+          required: true
+          description: Target user ID (positive integer).
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotaLimitUpdate'
+      responses:
+        '200':
+          description: Override applied (empty object)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
 components:
   securitySchemes:
     BasicAuth:
@@ -2321,7 +2526,6 @@ components:
           type: string
         platform:
           type: string
-          enum: [test-platform, test-platform-alt, web, unknown]
         deviceUid:
           type: string
           nullable: true
@@ -2522,6 +2726,149 @@ components:
           type: integer
         errorDescription:
           type: string
+
+    MessageJobAccepted:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: integer
+        status:
+          type: string
+          enum: [pending]
+
+    MessageJobError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: |
+            Closed plugin job error code. `provider-*` codes refer to the
+            downstream service (AI provider or webhook target alike);
+            `invalid-existing-tags` and `invalid-output` are plugin-defined
+            semantics passed through uninterpreted.
+          enum:
+            - config
+            - secret-decrypt-failed
+            - not-found
+            - invalid-existing-tags
+            - provider-auth
+            - provider-quota
+            - provider-rate-limit
+            - provider-model
+            - provider-timeout
+            - provider-network
+            - provider-invalid-envelope
+            - invalid-output
+            - outbound-blocked
+            - downstream-rejected
+            - limit-exceeded
+            - quota-read-failed
+            - dead-timeout
+            - enqueue-send-failed
+            - write-failed
+            - plugin-unavailable
+            - internal
+        message:
+          type: string
+          description: Fixed, non-sensitive error message.
+
+    MessageJob:
+      type: object
+      required: [jobId, pluginId, status, result, error, createdAt, completedAt]
+      properties:
+        jobId:
+          type: integer
+        pluginId:
+          type: integer
+        status:
+          type: string
+          enum: [pending, success, failed, dead]
+        result:
+          nullable: true
+          description: Plugin-defined JSON result (public data); `null` when absent or unparseable.
+        error:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MessageJobError'
+          description: Populated only for terminal `failed`/`dead`; `null` otherwise.
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Terminal completion time; `null` while pending.
+
+    MessageJobList:
+      type: object
+      required: [messageDeleted, jobs]
+      properties:
+        messageDeleted:
+          type: boolean
+          description: True when the message row no longer exists and jobs are returned as owner history.
+        jobs:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/MessageJob'
+
+    QuotaUser:
+      type: object
+      required:
+        - userId
+        - pluginId
+        - defaultLimit
+        - overrideLimit
+        - effectiveLimit
+        - usageDay
+        - usageCount
+        - usageToday
+        - source
+      properties:
+        userId:
+          type: integer
+        pluginId:
+          type: integer
+        defaultLimit:
+          type: integer
+        overrideLimit:
+          type: integer
+          nullable: true
+        effectiveLimit:
+          type: integer
+        usageDay:
+          type: string
+          nullable: true
+        usageCount:
+          type: integer
+        usageToday:
+          type: integer
+        source:
+          type: string
+          enum: [default, override]
+
+    QuotaUserList:
+      type: object
+      required: [users]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuotaUser'
+
+    QuotaLimitUpdate:
+      type: object
+      required: [limit]
+      properties:
+        limit:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Non-negative integer sets the limit (`0` disables); `null` clears the override.
 
   responses:
     BadRequest:

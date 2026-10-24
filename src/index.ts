@@ -23,6 +23,11 @@ const backendPrefixes = [
   "/application",
   "/client",
   "/message",
+
+
+
+
+  "/admin/quotas",
   "/plugin",
   "/stream",
   "/image",
@@ -38,6 +43,20 @@ const backendPrefixes = [
 
 
 const exactBackendPaths = ["/static/defaultapp.png"];
+
+
+
+
+
+
+
+
+
+
+
+
+
+import { PLUGIN_JOB_QUEUE_NAME, PUSH_QUEUE_NAME } from "./constants/queueNames.ts";
 
 export default {
 
@@ -134,6 +153,14 @@ export default {
     await cleanupService.cleanupOldPluginLogs(30);
 
 
+
+    try {
+      await cleanupService.cleanupPluginJobs();
+    } catch (error) {
+      console.error('Scheduled plugin job cleanup failed:', error);
+    }
+
+
     try {
       const { createDrizzle } = await import('./drizzle/index.ts');
       const drizzle = createDrizzle(env.DB);
@@ -145,17 +172,12 @@ export default {
         console.log(`Push reconciliation: reclaimed ${reclaimed} stale processing jobs`);
       }
 
-      const { PushConfigService } = await import('./services/push/configService.ts');
-      const configService = new PushConfigService(drizzle);
-      const config = await configService.getRuntimeConfig();
-      const { createProviderRegistry } = await import('./services/push/providers/registry.ts');
-      const providers = createProviderRegistry();
+
+      const { createPushRuntime } = await import('./services/push/runtime.ts');
+      const { providers } = await createPushRuntime(drizzle, env);
 
       const { PushDispatcher } = await import('./services/push/dispatcher.ts');
-      const dispatcher = new PushDispatcher(outbox, providers, {
-        maxRetries: config.maxRetries,
-        retryBackoffMs: config.retryBackoffMs
-      });
+      const dispatcher = new PushDispatcher(outbox, providers);
       await dispatcher.runOnce();
 
       await cleanupService.cleanupPushOutbox(30);
@@ -188,38 +210,67 @@ export default {
 
 
 
+
+
+
+
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (!env.PUSH_QUEUE) {
-      console.error("PUSH_QUEUE binding is missing");
-      batch.retryAll();
+    const pluginJobQueueName = env.PLUGIN_JOB_QUEUE_NAME ?? PLUGIN_JOB_QUEUE_NAME;
+    const pushQueueName = env.PUSH_QUEUE_NAME ?? PUSH_QUEUE_NAME;
+
+    if (batch.queue === pluginJobQueueName) {
+      try {
+        const { createDrizzle } = await import("./drizzle/index.ts");
+        const drizzle = createDrizzle(env.DB);
+        const { PluginJobQueueConsumer } = await import(
+          "./services/pluginJobs/pluginJobQueueConsumer.ts"
+        );
+        const consumer = new PluginJobQueueConsumer({ drizzle, env });
+        await consumer.consume(batch);
+      } catch {
+
+        console.error(`[Plugin Job] dispatch failed queue=${batch.queue}`);
+        batch.retryAll();
+      }
       return;
     }
 
-    try {
-      const { createDrizzle } = await import("./drizzle/index.ts");
-      const drizzle = createDrizzle(env.DB);
+    if (batch.queue === pushQueueName) {
 
-      const { PushConfigService } = await import("./services/push/configService.ts");
-      const configService = new PushConfigService(drizzle);
-      const config = await configService.getRuntimeConfig();
-      const { createProviderRegistry } = await import('./services/push/providers/registry.ts');
-      const providers = createProviderRegistry();
+      if (!env.PUSH_QUEUE) {
+        console.error("PUSH_QUEUE binding is missing");
+        batch.retryAll();
+        return;
+      }
 
-      const { PushOutboxService } = await import("./services/push/outboxService.ts");
-      const outboxService = new PushOutboxService(drizzle);
-      const { consumePushQueueBatch } = await import("./services/push/queueConsumer.ts");
+      try {
+        const { createDrizzle } = await import("./drizzle/index.ts");
+        const drizzle = createDrizzle(env.DB);
 
-      await consumePushQueueBatch(batch, {
-        outbox: outboxService,
-        providers,
-        queue: env.PUSH_QUEUE,
-        maxRetries: config.maxRetries,
-        retryBackoffMs: config.retryBackoffMs
-      });
-    } catch (error) {
-      console.error("Queue push dispatch failed:", error);
-      batch.retryAll();
+
+        const { createPushRuntime } = await import("./services/push/runtime.ts");
+        const { providers } = await createPushRuntime(drizzle, env);
+
+        const { PushOutboxService } = await import("./services/push/outboxService.ts");
+        const outboxService = new PushOutboxService(drizzle);
+        const { consumePushQueueBatch } = await import("./services/push/queueConsumer.ts");
+
+        await consumePushQueueBatch(batch, {
+          outbox: outboxService,
+          providers,
+          queue: env.PUSH_QUEUE
+        });
+      } catch (error) {
+        console.error("Queue push dispatch failed:", error);
+        batch.retryAll();
+      }
+      return;
     }
+
+
+
+    console.error(`[Queue] unknown queue queue=${batch.queue} count=${batch.messages.length}`);
+    batch.ackAll();
   },
 };
 

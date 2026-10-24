@@ -139,6 +139,13 @@ const ENDPOINT_AUTH_MAP: Record<string, { strategy: AuthStrategy; tokenType?: 'c
   'DELETE:/message/{id}': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
   'POST:/message': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
 
+  'POST:/message/{id}/jobs': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
+  'GET:/message/{id}/jobs': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
+
+
+  'GET:/admin/quotas/{namespace}/users': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
+  'PUT:/admin/quotas/{namespace}/{userId}': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
+
 
   'GET:/plugin': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },
   'GET:/plugin/{id}/config': { strategy: AuthStrategy.CLIENT_TOKEN_HEADER, tokenType: 'client' },

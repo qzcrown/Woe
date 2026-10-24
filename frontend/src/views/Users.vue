@@ -140,9 +140,77 @@
                   {{ savingPermissions.has(user.id) ? $t('common.saving') : $t('common.save') }}
                 </button>
               </div>
+
+
+              <div v-if="canManageQuotas(authStore.user) && getQuota(user.id)" class="detail-section ai-quota-section">
+                <h4>{{ $t('users.aiQuota.title') }}</h4>
+                <div class="ai-quota-grid">
+                  <div class="ai-quota-item">
+                    <span class="ai-quota-label">{{ $t('users.aiQuota.defaultLimit') }}</span>
+                    <span class="ai-quota-value">{{ getQuota(user.id)?.defaultLimit }}</span>
+                  </div>
+                  <div class="ai-quota-item">
+                    <span class="ai-quota-label">{{ $t('users.aiQuota.overrideLimit') }}</span>
+                    <span class="ai-quota-value">
+                      {{ getQuota(user.id)?.overrideLimit === null
+                        ? $t('users.aiQuota.inherited')
+                        : getQuota(user.id)?.overrideLimit }}
+                    </span>
+                  </div>
+                  <div class="ai-quota-item">
+                    <span class="ai-quota-label">{{ $t('users.aiQuota.effectiveLimit') }}</span>
+                    <span class="ai-quota-value">
+                      {{ isQuotaDisabled(getQuota(user.id)?.effectiveLimit ?? 0)
+                        ? $t('users.aiQuota.disabled')
+                        : getQuota(user.id)?.effectiveLimit }}
+                    </span>
+                  </div>
+                  <div class="ai-quota-item">
+                    <span class="ai-quota-label">{{ $t('users.aiQuota.usageToday') }}</span>
+                    <span class="ai-quota-value">{{ getQuota(user.id)?.usageToday }}</span>
+                  </div>
+                  <div class="ai-quota-item">
+                    <span class="ai-quota-label">{{ $t('users.aiQuota.source') }}</span>
+                    <span class="ai-quota-value">{{ $t(quotaSourceKey(getQuota(user.id)?.source ?? 'default')) }}</span>
+                  </div>
+                </div>
+                <div class="ai-quota-actions">
+                  <input
+                    class="ai-quota-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    :value="quotaInputs[user.id] ?? ''"
+                    :placeholder="$t('users.aiQuota.limitPlaceholder')"
+                    @input="updateQuotaInput(user.id, $event)"
+                  />
+                  <button
+                    type="button"
+                    class="ai-quota-save-btn"
+                    :disabled="quotaSaving.has(user.id)"
+                    @click="saveQuota(user.id)"
+                  >
+                    {{ quotaSaving.has(user.id) ? $t('common.saving') : $t('users.aiQuota.set') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="ai-quota-clear-btn"
+                    :disabled="quotaSaving.has(user.id)"
+                    @click="clearQuota(user.id)"
+                  >
+                    {{ $t('users.aiQuota.clear') }}
+                  </button>
+                </div>
+                <p class="ai-quota-hint">{{ $t('users.aiQuota.zeroHint') }}</p>
+                <p v-if="quotaErrors[user.id]" class="ai-quota-error">{{ quotaErrors[user.id] }}</p>
+              </div>
             </div>
           </div>
         </div>
+      </div>
+
+      <div v-if="quotaLoadError" class="ai-quota-load-error">
+        {{ quotaLoadError }}
       </div>
 
       <div v-if="!loading && users.length === 0" class="empty-state">
@@ -168,6 +236,8 @@
           if (selectedUserId) {
             await loadUserDetails(selectedUserId)
           }
+          // 新增实例可能新增/移除「已启用 AI 任务插件」，配额区块要跟着刷新
+          await loadAiQuotas()
           showCreatePluginModal = false
         }"
       />
@@ -179,6 +249,8 @@
           if (selectedUserId) {
             await loadUserDetails(selectedUserId)
           }
+          // 编辑可能启用/停用 AI 任务插件 实例，配额区块要跟着刷新
+          await loadAiQuotas()
           showEditPluginModal = false
         }"
       />
@@ -196,16 +268,19 @@ import EditUserModal from '@/components/EditUserModal.vue'
 import CreatePluginModal from '@/components/CreatePluginModal.vue'
 import EditPluginModal from '@/components/EditPluginModal.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
-import { userApi, pluginApi } from '@/services/api'
+import { userApi, pluginApi, adminQuotaApi } from '@/services/api'
 import { withElevationRetry } from '@/services/auth'
 import { isElevationCancelled } from '@/composables/useElevatedAction'
 import { showSuccess, showError } from '@/utils/errorHandler'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { formatDate } from '@/utils/datetime'
-import type { User, Application, Client, Plugin, AvailablePlugin } from '@/types'
+import { canManageQuotas, isQuotaDisabled, parseQuotaLimitInput, quotaInputErrorKey, quotaSourceKey } from '@/utils/quota'
+import { useAuthStore } from '@/stores/auth'
+import type { User, Application, Client, Plugin, AvailablePlugin, AiQuotaUser, ApiError } from '@/types'
 
 const { t } = useI18n()
 const { confirm: confirmDialog } = useConfirmDialog()
+const authStore = useAuthStore()
 
 interface UserDetails {
   applications: Application[]
@@ -241,6 +316,102 @@ const selectedUserId = ref<number | undefined>(undefined)
 const deletingUserPlugin = ref<{ userId: number; pluginId: number } | null>(null)
 const showEditPluginModal = ref(false)
 const editingPlugin = ref<Plugin | null>(null)
+
+
+const aiQuotas = reactive(new Map<number, AiQuotaUser>())
+const quotaInputs = reactive<Record<number, string>>({})
+const quotaSaving = ref<Set<number>>(new Set())
+const quotaErrors = reactive<Record<number, string>>({})
+const quotaLoadError = ref<string | null>(null)
+
+const getQuota = (userId: number): AiQuotaUser | undefined => aiQuotas.get(userId)
+
+const loadAiQuotas = async () => {
+  if (!canManageQuotas(authStore.user)) return
+  try {
+    const response = await adminQuotaApi.list()
+    aiQuotas.clear()
+    for (const quota of response.data?.users ?? []) {
+      aiQuotas.set(quota.userId, quota)
+      quotaInputs[quota.userId] = quota.overrideLimit === null ? '' : String(quota.overrideLimit)
+    }
+    quotaLoadError.value = null
+  } catch (err) {
+    console.error('Failed to load AI quotas:', err)
+    quotaLoadError.value = t('users.aiQuota.loadError')
+  }
+}
+
+const updateQuotaInput = (userId: number, event: Event) => {
+  quotaInputs[userId] = (event.target as HTMLInputElement).value
+  delete quotaErrors[userId]
+}
+
+const setQuotaSaving = (userId: number, saving: boolean) => {
+  const next = new Set(quotaSaving.value)
+  if (saving) next.add(userId)
+  else next.delete(userId)
+  quotaSaving.value = next
+}
+
+const quotaErrorText = (err: unknown): string => {
+  const status = (err as ApiError | undefined)?.statusCode
+  return status === 503 ? t('users.aiQuota.unavailable') : t('users.aiQuota.saveError')
+}
+
+
+
+
+
+const applyQuotaOverride = (userId: number, limit: number | null) => {
+  const current = aiQuotas.get(userId)
+  if (!current) return
+  aiQuotas.set(userId, {
+    ...current,
+    overrideLimit: limit,
+    effectiveLimit: limit === null ? current.defaultLimit : limit,
+    source: limit === null ? 'default' : 'override'
+  })
+}
+
+const saveQuota = async (userId: number) => {
+  const parsed = parseQuotaLimitInput(quotaInputs[userId] ?? '')
+  if (parsed.status !== 'ok') {
+
+    quotaErrors[userId] = t(quotaInputErrorKey(parsed.status))
+    return
+  }
+
+  setQuotaSaving(userId, true)
+  delete quotaErrors[userId]
+  try {
+    await adminQuotaApi.setLimit(userId, parsed.limit)
+    applyQuotaOverride(userId, parsed.limit)
+    quotaInputs[userId] = String(parsed.limit)
+    showSuccess(t('users.aiQuota.saveSuccess'))
+  } catch (err) {
+    console.error('Failed to update AI quota:', err)
+    quotaErrors[userId] = quotaErrorText(err)
+  } finally {
+    setQuotaSaving(userId, false)
+  }
+}
+
+const clearQuota = async (userId: number) => {
+  setQuotaSaving(userId, true)
+  delete quotaErrors[userId]
+  try {
+    await adminQuotaApi.clearLimit(userId)
+    applyQuotaOverride(userId, null)
+    quotaInputs[userId] = ''
+    showSuccess(t('users.aiQuota.saveSuccess'))
+  } catch (err) {
+    console.error('Failed to clear AI quota:', err)
+    quotaErrors[userId] = quotaErrorText(err)
+  } finally {
+    setQuotaSaving(userId, false)
+  }
+}
 
 const loadUsers = async () => {
   try {
@@ -425,6 +596,8 @@ const deleteUserPlugin = async (userId: number, pluginId: number, pluginName: st
     await pluginApi.deletePlugin(pluginId)
     showSuccess(t('plugins.deleteSuccess', { name: pluginName }))
     await loadUserDetails(userId)
+
+    await loadAiQuotas()
   } catch (err: any) {
     showError(err, t('plugins.deleteError'))
   } finally {
@@ -440,6 +613,7 @@ const openEditPluginModal = (plugin: Plugin) => {
 onMounted(async () => {
   await loadUsers()
   await loadAvailablePlugins()
+  await loadAiQuotas()
 })
 </script>
 
@@ -856,6 +1030,107 @@ onMounted(async () => {
 .delete-plugin-small-btn:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+}
+
+
+.ai-quota-section {
+  border-top: 1px solid var(--color-border-primary);
+  padding-top: 1rem;
+}
+
+.ai-quota-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.ai-quota-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.625rem;
+  background: var(--color-bg-hover);
+  border-radius: 0.375rem;
+}
+
+.ai-quota-label {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.ai-quota-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.ai-quota-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ai-quota-input {
+  width: 9rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 0.375rem;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+}
+
+.ai-quota-save-btn,
+.ai-quota-clear-btn {
+  padding: 0.375rem 0.75rem;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: var(--theme-transition);
+}
+
+.ai-quota-save-btn {
+  background-color: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
+.ai-quota-save-btn:hover:not(:disabled) {
+  background-color: var(--color-primary-hover);
+}
+
+.ai-quota-clear-btn {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-secondary);
+}
+
+.ai-quota-save-btn:disabled,
+.ai-quota-clear-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.ai-quota-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.ai-quota-error,
+.ai-quota-load-error {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-error);
+}
+
+.ai-quota-load-error {
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-hover);
+  border-radius: 0.375rem;
 }
 
 @media (max-width: 768px) {

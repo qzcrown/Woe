@@ -1,41 +1,44 @@
 # Woe
 
-Gotify 兼容的自托管通知服务，运行在 Cloudflare Workers 上。Woe 提供 REST API、WebSocket 消息流和用于服务管理的 Web UI，支持消息、应用、客户端、用户与插件管理。
+Gotify 兼容的自托管通知服务，运行在 Cloudflare Workers，提供消息 API、WebSocket、Web UI、用户/应用/客户端与插件管理。
 
-## 功能
+## 公开范围
 
-- **消息 API**：兼容 Gotify 的 `POST /message`，支持 JSON、form、multipart、query 绑定以及 extras 字段。
-- **实时消息流**：通过 `/stream` 和 client token 订阅消息，支持 `ping`/`pong` 保活。
-- **Web UI**：登录、消息浏览与 Markdown 渲染、应用/客户端/用户管理、插件配置。
-- **多用户与媒体**：管理员提权、注册开关、凭据轮换与过期；图标存储在 Cloudflare R2 并支持默认图兜底。
+本版内置 **displayer** 和 **Webhooker**。AI Tagger 与厂商移动推送插件不包含在公开包中；相关专用配置表单和消息操作入口也不提供。通用插件任务、Secret、配额、标签、AI provider/runtime 及推送可靠性框架保留为源码扩展能力，不代表默认已启用 AI 或移动推送。
 
-## 认证与消息契约
+插件为随 Worker 编译的静态源码，没有上传或运行时安装入口。Webhooker 经独立 Plugin Jobs Queue 异步尽力投递，只由 message.create 触发，最多三次尝试，可能重复投递；不提供手动重投入口。displayer 通过 GET /plugin/{id}/display 返回展示内容。
 
-- Basic Authentication 用于用户操作、管理员提权和初始化。
-- Application Token（`X-Gotify-Key`）用于 `POST /message`；Client Token 用于 Web/客户端会话和 `/stream`；Bearer 与 `X-Gotify-Key` 等价。
-- 新签发的 app/client token 使用 `gtfy…` EdDSA 格式，历史 `A…`/`C…` 格式仍有效；完整 token 只在创建或轮换响应中返回。
-- 消息 `priority` 接受**整数**并保留原值。前端按低（≤0）／普通（1）／高（2）／紧急（≥3）四档展示与筛选；手动发送和应用创建的优先级控件提供 **0–3 四档**。缺省或 JSON null 时使用应用默认值。
+## 部署与升级
 
-## 首次初始化与登录
+完整步骤见 [部署指南](DEPLOY.md)，英文见 [English deployment guide](DEPLOY.en.md)。
 
-**首次部署不会自动创建默认管理员账号。** `DEFAULT_ADMIN_USER`（默认 `admin`）和 `DEFAULT_ADMIN_PASSWORD`（通过 Wrangler Secret 设置）仅用于授权首次初始化，不能用于日常登录。
+需要 Node.js ≥22.12、Cloudflare 账号、D1、R2、Images、Durable Object，以及 Webhooker 的 Plugin Jobs Queue 与插件主密钥。
 
-部署后打开 `/setup`：先在“初始化令牌”的用户名/密码字段中填写上述引导凭据，再设置首个实际管理员的用户名、密码和确认密码。初始化成功后，使用新创建的管理员账号登录。
+```bash
+npm ci
+npm --prefix frontend ci
+npx wrangler login
+cp example.wrangler.toml wrangler.toml
+# 先按 DEPLOY 创建资源、修改实际 ID/域名并设置 Secrets
+npm run build:frontend
+npm run deploy
+```
 
-建议为实际管理员使用不同的用户名和独立的强密码。**不要让实际管理员的用户名和密码同时与引导凭据完全相同**，否则该组合会被登录认证拒绝。初始化只能成功一次；修改 `DEFAULT_ADMIN_*` 不会更改已创建的管理员账号。
+默认公开功能不需要 Workers AI、QUOTA_KV 或推送队列（PUSH_QUEUE）。若自行接入声明配额或 AI provider 的任务插件，按其契约恢复对应绑定。不要把完整版模板中的所有能力误认为公开包已提供。
 
-详细步骤见[部署指南的“初始化管理员”](DEPLOY.md#5-初始化管理员)。
+## 首次初始化与认证
 
-## 公开插件边界
+部署不会自动创建日常管理员。DEFAULT_ADMIN_USER（默认 admin）与 Secret DEFAULT_ADMIN_PASSWORD 只授权首次初始化；打开 /setup，填写引导凭据，再设置实际管理员账户。详见 [初始化管理员](DEPLOY.md#5-初始化管理员)。引导凭据不能用于日常登录；实际管理员不要同时使用与引导凭据完全相同的用户名和密码。
 
-公开版只包含 **displayer** 展示插件：它把消息渲染为独立展示页（`GET /display/{id}`），不执行 Webhook 或移动推送。
+Basic 用于用户管理、提权与初始化。Application Token 用于发消息，Client Token 用于客户端与 /stream；Bearer 与 X-Gotify-Key 均受支持。新 token 的完整凭据只在创建/应用轮换响应中返回；应用列表不返回 token，详情返回存储形态（增强 token 为公钥形态）。
 
-移动推送和 Webhook 传输插件不包含在公开仓库中；核心推送管线和插件 API 仍保留为扩展点。未安装传输插件时，新消息不会触发移动推送或 Webhook 调用。
+消息 priority 接受安全整数并保留原值；Web UI 按低≤0、普通1、高2、紧急≥3展示，手动控件提供0–3四档。缺省或 JSON null 使用应用默认值。
 
-## 文档入口
+## 运维注意
 
-- [中文部署指南](DEPLOY.md)：资源创建、配置、Secrets、构建、部署、初始化、升级和故障排查。
-- [English deployment guide](DEPLOY.en.md)
+Webhooker 保存配置需要 PLUGIN_SECRET_MASTER_KEY，包括未填写 authToken 的配置。升级保留既有主密钥及版本，不要重新生成。新请求成功不等于 Webhook 已送达，应核对 job 状态和下游结果。
+
+新增插件不自动授权给非管理员用户；配置保存后还需启用。默认出站采用 HTTPS 与静态私网地址限制；Webhooker 放宽策略、secret 掩码和升级/回滚步骤见部署指南。
 
 ## License
 

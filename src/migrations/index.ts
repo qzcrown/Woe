@@ -28,6 +28,8 @@ import migration0010 from './sql/0010_same_firestar.sql';
 import migration0011 from './sql/0011_active_device_token_unique.sql';
 // @ts-ignore
 import migration0012 from './sql/0012_wonderful_random.sql';
+// @ts-ignore
+import migration0013 from './sql/0013_plugin_jobs.sql';
 
 export const migrations: Record<string, string> = {
   '0000_initial_schema': migration0000,
@@ -43,6 +45,7 @@ export const migrations: Record<string, string> = {
   '0010_same_firestar': migration0010,
   '0011_active_device_token_unique': migration0011,
   '0012_wonderful_random': migration0012,
+  '0013_plugin_jobs': migration0013,
 };
 
 export default migrations;

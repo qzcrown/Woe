@@ -22,6 +22,7 @@ import { validatePositiveIntegerId } from "../utils/routeParams.ts";
 import { parseMessagePaging } from "../utils/messagePaging.ts";
 import { validateMessageCreateFields } from "../utils/messageCreateValidation.ts";
 import { MessageCreateBody, parseMessageCreateRequest } from "../utils/messageRequestBinding.ts";
+import { createPluginJobRuntime } from "../services/pluginJobs/pluginJobService.ts";
 
 const message = new Hono<HonoEnv>();
 
@@ -121,7 +122,10 @@ message.post("/", async (c) => {
   const streamHub = c.env.MESSAGE_STREAM_HUB
     ? new DurableObjectMessageStreamHub(c.env.MESSAGE_STREAM_HUB)
     : undefined;
-  const messageHandlers = new MessageHandlers(drizzle, streamHub);
+
+
+  const jobRuntime = createPluginJobRuntime({ drizzle, env: c.env });
+  const messageHandlers = new MessageHandlers(drizzle, streamHub, jobRuntime);
 
   let target: MessageCreateTarget | Response;
   try {

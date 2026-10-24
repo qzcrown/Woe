@@ -38,7 +38,7 @@ async function enqueue(testDb: ReturnType<typeof createTestDb>) {
     messageId: messageSeq,
     appid: 42,
     date: '2026-09-24T10:00:00.000Z',
-    platform: 'test-platform',
+    platform: 'fixture_a',
     message: 'hello'
   })
   return { messageId: messageSeq, result }
@@ -58,7 +58,10 @@ function makeRecordingProvider(sendImpl?: jest.Mock) {
     sendImpl ??
     jest.fn(async () => ({ ok: true, retriable: false }))
   return {
-    providers: { get: jest.fn().mockReturnValue({ name: 'test-platform', send }) },
+    providers: {
+      get: jest.fn().mockReturnValue({ name: 'fixture_a', send }),
+      getPolicy: jest.fn().mockReturnValue({ maxRetries: 3, retryBackoffMs: 2000 })
+    },
     send
   }
 }
@@ -66,7 +69,7 @@ function makeRecordingProvider(sendImpl?: jest.Mock) {
 
 function runDispatcher(testDb: ReturnType<typeof createTestDb>, providers: any, options: any = {}) {
   const outbox = new PushOutboxService(asDrizzle(testDb))
-  const dispatcher = new PushDispatcher(outbox as any, providers, { maxRetries: 3, retryBackoffMs: 2000, ...options })
+  const dispatcher = new PushDispatcher(outbox as any, providers, options)
   return dispatcher.runOnce()
 }
 
@@ -111,9 +114,7 @@ describe('端到端：queueConsumer 消费入口真实链路（真库 + mock pro
     await consumePushQueueBatch(makeBatch(msg), {
       outbox: new PushOutboxService(asDrizzle(testDb)) as any,
       providers: providers as any,
-      queue: { sendBatch: jest.fn().mockResolvedValue(undefined) } as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      queue: { sendBatch: jest.fn().mockResolvedValue(undefined) } as any
     })
 
     expect(send).toHaveBeenCalledTimes(1)
@@ -134,9 +135,7 @@ describe('端到端：queueConsumer 消费入口真实链路（真库 + mock pro
     await consumePushQueueBatch(makeBatch(msg), {
       outbox: new PushOutboxService(asDrizzle(testDb)) as any,
       providers: providers as any,
-      queue: queue as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      queue: queue as any
     })
 
     const row = getRow(testDb, result.outboxIds[0])
@@ -164,7 +163,7 @@ describe('用例 2：token 变化后重复入队仍一行，发送用新 token',
       messageId,
       appid: 42,
       date: '2026-09-24T10:00:00.000Z',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       message: 'hello'
     })
     expect(second.count).toBe(0)
@@ -204,7 +203,7 @@ describe('用例 3/4：pending 行发送时使用经 PUT / POST 更新的最新 
     const handlers = new ClientHandlers(asDrizzle(testDb))
     const res = await handlers.createClient(7, {
       name: 'Re-registered',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: client.deviceUid ?? undefined,
       deviceToken: 'post-new-token'
     })
@@ -288,13 +287,13 @@ describe('用例 6/7：发送窗口内目标变化守卫', () => {
     expect(row.attemptCount).toBe(1)
   })
 
-  test('用例 12 变体：失败期间平台变化（test-platform → test-platform-alt）→ scheduleRetry', async () => {
+  test('用例 12 变体：失败期间平台变化（fixture_a → fixture_b）→ scheduleRetry', async () => {
     const testDb = createTestDb()
     const client = seedClient(testDb)
     const { result } = await enqueue(testDb)
 
     const send = jest.fn().mockImplementationOnce(async () => {
-      testDb.db.update(clients).set({ platform: 'test-platform-alt' }).where(eq(clients.id, client.id)).run()
+      testDb.db.update(clients).set({ platform: 'fixture_b' }).where(eq(clients.id, client.id)).run()
       return { ok: false, retriable: false, errorMessage: 'boom' }
     })
     const { providers } = makeRecordingProvider(send)
@@ -431,10 +430,10 @@ describe('用例 11：旧 payload 兼容', () => {
     testDb.db.insert(pushOutbox).values({
       userId: 7,
       messageId: messageSeq,
-      platform: 'test-platform',
+      platform: 'fixture_a',
       payloadJson: JSON.stringify({
         userId: 7,
-        platform: 'test-platform',
+        platform: 'fixture_a',
         messageId: messageSeq,
         appid: 42,
         date: '2026-09-24T10:00:00.000Z',

@@ -17,5 +17,10 @@ export const pluginConfigs = sqliteTable('plugin_configs', {
   configYaml: text('config_yaml'),
   enabled: integer('enabled').notNull().default(1),
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`)
+  updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+
+  encryptedSecret: text('encrypted_secret'),
+
+  usageDay: text('usage_day'),
+  usageCount: integer('usage_count').notNull().default(0)
 });

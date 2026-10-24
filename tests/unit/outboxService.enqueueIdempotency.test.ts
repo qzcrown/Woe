@@ -24,7 +24,7 @@ function makeInput(messageId: number, overrides: Partial<Parameters<PushOutboxSe
     messageId,
     appid: 42,
     date: '2026-09-24T10:00:00.000Z',
-    platform: 'test-platform' as const,
+    platform: 'fixture_a' as const,
     message: 'hello',
     ...overrides
   }
@@ -117,7 +117,7 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
     expect(rows[0].clientId).toBe(client.id)
   })
 
-  test('两个 test-platform client（均有 deviceToken）同消息入队 → 2 行；重复 → 仍 2 行、count=0；部分冲突批量 count=实际插入数', async () => {
+  test('两个 fixture_a client（均有 deviceToken）同消息入队 → 2 行；重复 → 仍 2 行、count=0；部分冲突批量 count=实际插入数', async () => {
     const testDb = createTestDb()
     const service = new PushOutboxService(asDrizzle(testDb))
     seedClient(testDb, { deviceUid: 'device-1' })
@@ -164,7 +164,7 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
       ['appid', 'date', 'extras', 'message', 'messageId', 'platform', 'priority', 'title', 'userId']
     )
     expect(rows[0].status).toBe('pending')
-    expect(rows[0].platform).toBe('test-platform')
+    expect(rows[0].platform).toBe('fixture_a')
     expect(JSON.parse(rows[0].payloadJson)).toEqual(expect.objectContaining({
       messageId: 500,
       appid: 42,

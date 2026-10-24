@@ -46,7 +46,7 @@ describe("PluginHandlers", () => {
           userId: 1,
           name: "Test Plugin",
           token: "P12345",
-          modulePath: "builtin/displayer",
+          modulePath: "builtin/webhooker",
           enabled: 1,
           icon: null,
           configYaml: ""
@@ -62,15 +62,15 @@ describe("PluginHandlers", () => {
     expect(data).toHaveLength(1);
     expect(data[0].name).toBe("Test Plugin");
     expect(data[0].enabled).toBe(true);
-    expect(data[0].modulePath).toBe("builtin/displayer");
+    expect(data[0].modulePath).toBe("builtin/webhooker");
   });
 
   test("getPluginConfig returns YAML with correct content type", async () => {
     const drizzle = createDrizzleMock({
       selectGetResults: [
         {
-          configYaml: "messageFormat: \"[#{NOW}] #{APP_NAME}: #{MESSAGE}\"\nshowTitle: true\n",
-          modulePath: "builtin/displayer"
+          configYaml: "delay: 1000\ntarget_url: http://localhost:8080\n",
+          modulePath: "builtin/webhooker"
         }
       ]
     });
@@ -80,10 +80,12 @@ describe("PluginHandlers", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("application/x-yaml");
-    await expect(response.text()).resolves.toContain("messageFormat");
+    await expect(response.text()).resolves.toContain("delay: 1000");
   });
 
   test("updatePluginConfig stores YAML when content type is correct", async () => {
+
+
     const drizzle = createDrizzleMock({
       selectGetResults: [
         { id: 1, modulePath: "builtin/displayer" }
@@ -94,7 +96,7 @@ describe("PluginHandlers", () => {
     const request = new Request("http://localhost/plugin/1/config", {
       method: "POST",
       headers: { "content-type": "application/x-yaml" },
-      body: "messageFormat: \"updated\"\n"
+      body: "delay: 2000\n"
     });
 
     const response = await pluginHandlers.updatePluginConfig(1, "1", request, true);
@@ -108,7 +110,7 @@ describe("PluginHandlers", () => {
   test("enablePlugin enables a plugin for admin", async () => {
     const drizzle = createDrizzleMock({
       selectGetResults: [
-        { id: 1, modulePath: "builtin/displayer" }
+        { id: 1, modulePath: "builtin/webhooker" }
       ]
     });
     const pluginHandlers = new PluginHandlers(drizzle as any);
@@ -124,7 +126,7 @@ describe("PluginHandlers", () => {
   test("disablePlugin disables a plugin for admin", async () => {
     const drizzle = createDrizzleMock({
       selectGetResults: [
-        { id: 1, modulePath: "builtin/displayer" }
+        { id: 1, modulePath: "builtin/webhooker" }
       ]
     });
     const pluginHandlers = new PluginHandlers(drizzle as any);

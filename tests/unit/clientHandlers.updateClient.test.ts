@@ -252,24 +252,24 @@ describe('ClientHandlers updateClient', () => {
 
   test('ignores unknown fields (token/platform are never writable via PUT)', async () => {
     const { testDb, handlers } = makeHandlers()
-    const seed = seedClient(testDb, { platform: 'test-platform', tokenStatus: 'active' })
+    const seed = seedClient(testDb, { platform: 'fixture_a', tokenStatus: 'active' })
 
     const res = await handlers.updateClient(7, String(seed.id), {
       name: 'Renamed',
       unknownField: { nested: true },
       token: 'client-token-hijack',
-      platform: 'test-platform-alt'
+      platform: 'fixture_b'
     })
     const body = await res.json() as any
 
     expect(res.status).toBe(200)
     expect(body.name).toBe('Renamed')
     expect(body.token).toBe(seed.token)
-    expect(body.platform).toBe('test-platform')
+    expect(body.platform).toBe('fixture_a')
 
     const row = getRow(testDb, seed.id)
     expect(row.token).toBe(seed.token)
-    expect(row.platform).toBe('test-platform')
+    expect(row.platform).toBe('fixture_a')
   })
 
   test('accepts a full echoed Woe Client object without error and keeps the token', async () => {
@@ -286,7 +286,7 @@ describe('ClientHandlers updateClient', () => {
       id: seed.id,
       token: seed.token,
       name: 'Echoed Name',
-      platform: 'test-platform-alt',
+      platform: 'fixture_b',
       deviceUid: 'device-abc',
       deviceToken: 'old-push-token',
       tokenUpdatedAt: FIXED_PAST,
@@ -302,11 +302,11 @@ describe('ClientHandlers updateClient', () => {
     expect(res.status).toBe(200)
     expect(body.name).toBe('Echoed Name')
     expect(body.token).toBe(seed.token)
-    expect(body.platform).toBe('test-platform')
+    expect(body.platform).toBe('fixture_a')
 
     const row = getRow(testDb, seed.id)
     expect(row.token).toBe(seed.token)
-    expect(row.platform).toBe('test-platform')
+    expect(row.platform).toBe('fixture_a')
     expect(row.appVersion).toBe('2.0.0')
     expect(row.deviceModel).toBe('Mate 70')
 

@@ -32,11 +32,11 @@ function makeOutboxStub(jobOverrides: Record<string, any> = {}) {
       id: 1,
       userId: 7,
       messageId: 100,
-      platform: 'test-platform',
+      platform: 'fixture_a',
       clientId: 1,
       payloadJson: JSON.stringify({
         userId: 7,
-        platform: 'test-platform',
+        platform: 'fixture_a',
         messageId: 100,
         appid: 42,
         date: '2026-02-28T11:59:00.000Z',
@@ -50,7 +50,7 @@ function makeOutboxStub(jobOverrides: Record<string, any> = {}) {
     getPushTargetByClientId: jest.fn().mockResolvedValue({
       kind: 'ready',
       clientId: 1,
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceToken: 'token-1',
       tokenUpdatedAt: '2026-09-24T00:00:00.000Z',
       tokenStatus: 'active'
@@ -59,6 +59,14 @@ function makeOutboxStub(jobOverrides: Record<string, any> = {}) {
     scheduleRetry: jest.fn().mockResolvedValue(undefined),
     markDead: jest.fn().mockResolvedValue(undefined),
     suspend: jest.fn().mockResolvedValue(undefined)
+  }
+}
+
+
+function makeResolver(provider: any | null) {
+  return {
+    get: jest.fn().mockReturnValue(provider),
+    getPolicy: jest.fn().mockReturnValue({ maxRetries: 3, retryBackoffMs: 2000 })
   }
 }
 
@@ -75,18 +83,14 @@ describe('queue consumer', () => {
       send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
     }
 
-    const providers = {
-      get: jest.fn().mockReturnValue(provider)
-    }
+    const providers = makeResolver(provider)
 
     const queue = makeQueue()
 
     await consumePushQueueBatch(makeBatch(message), {
       outbox: outbox as any,
       providers: providers as any,
-      queue: queue as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      queue: queue as any
     })
 
     expect(outbox.markProcessing).toHaveBeenCalledWith(1)
@@ -102,22 +106,18 @@ describe('queue consumer', () => {
 
   test('schedules retry and requeues on retriable failure', async () => {
     const message = makeQueueMessage({ outboxId: 1, traceId: 'trace-2', attempt: 0, enqueueAt: '2026-02-28T12:00:00.000Z' })
-    const outbox = makeOutboxStub({ id: 2, messageId: 101, payloadJson: JSON.stringify({ userId: 7, platform: 'test-platform', messageId: 101, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
+    const outbox = makeOutboxStub({ id: 2, messageId: 101, payloadJson: JSON.stringify({ userId: 7, platform: 'fixture_a', messageId: 101, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
 
-    const providers = {
-      get: jest.fn().mockReturnValue({
-        send: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
-      })
-    }
+    const providers = makeResolver({
+      send: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
+    })
 
     const queue = makeQueue()
 
     await consumePushQueueBatch(makeBatch(message), {
       outbox: outbox as any,
       providers: providers as any,
-      queue: queue as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      queue: queue as any
     })
 
     expect(outbox.markSuccess).not.toHaveBeenCalled()
@@ -129,20 +129,16 @@ describe('queue consumer', () => {
 
   test('marks dead on terminal provider failure', async () => {
     const message = makeQueueMessage({ outboxId: 1, traceId: 'trace-3', attempt: 0, enqueueAt: '2026-02-28T12:00:00.000Z' })
-    const outbox = makeOutboxStub({ id: 3, messageId: 102, attemptCount: 2, payloadJson: JSON.stringify({ userId: 7, platform: 'test-platform', messageId: 102, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
+    const outbox = makeOutboxStub({ id: 3, messageId: 102, attemptCount: 2, payloadJson: JSON.stringify({ userId: 7, platform: 'fixture_a', messageId: 102, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
 
-    const providers = {
-      get: jest.fn().mockReturnValue({
-        send: jest.fn().mockResolvedValue({ ok: false, retriable: false, errorMessage: 'invalid token' })
-      })
-    }
+    const providers = makeResolver({
+      send: jest.fn().mockResolvedValue({ ok: false, retriable: false, errorMessage: 'invalid token' })
+    })
 
     await consumePushQueueBatch(makeBatch(message), {
       outbox: outbox as any,
       providers: providers as any,
-      queue: makeQueue() as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      queue: makeQueue() as any
     })
 
     expect(outbox.markSuccess).not.toHaveBeenCalled()
@@ -153,7 +149,7 @@ describe('queue consumer', () => {
 
   test('skips duplicate delivery when processing lock is not acquired', async () => {
     const message = makeQueueMessage({ outboxId: 1, traceId: 'trace-4', attempt: 0, enqueueAt: '2026-02-28T12:00:00.000Z' })
-    const outbox = makeOutboxStub({ id: 4, messageId: 103, payloadJson: JSON.stringify({ userId: 7, platform: 'test-platform', messageId: 103, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
+    const outbox = makeOutboxStub({ id: 4, messageId: 103, payloadJson: JSON.stringify({ userId: 7, platform: 'fixture_a', messageId: 103, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
     outbox.markProcessing = jest.fn().mockResolvedValue(false)
 
     const provider = {
@@ -162,10 +158,8 @@ describe('queue consumer', () => {
 
     await consumePushQueueBatch(makeBatch(message), {
       outbox: outbox as any,
-      providers: { get: jest.fn().mockReturnValue(provider) } as any,
-      queue: makeQueue() as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      providers: makeResolver(provider) as any,
+      queue: makeQueue() as any
     })
 
     expect(provider.send).not.toHaveBeenCalled()
@@ -179,7 +173,7 @@ describe('queue consumer', () => {
       messageId: 104,
       payloadJson: JSON.stringify({
         userId: 7,
-        platform: 'test-platform',
+        platform: 'fixture_a',
         title: 'hello',
         message: 'world'
       })
@@ -191,10 +185,8 @@ describe('queue consumer', () => {
 
     await consumePushQueueBatch(makeBatch(message), {
       outbox: outbox as any,
-      providers: { get: jest.fn().mockReturnValue(provider) } as any,
-      queue: makeQueue() as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      providers: makeResolver(provider) as any,
+      queue: makeQueue() as any
     })
 
     expect(provider.send).not.toHaveBeenCalled()
@@ -214,10 +206,8 @@ describe('queue consumer', () => {
         scheduleRetry: jest.fn(),
         markDead: jest.fn()
       } as any,
-      providers: { get: jest.fn() } as any,
-      queue: makeQueue() as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      providers: makeResolver(null) as any,
+      queue: makeQueue() as any
     })
 
     expect(message.ack).toHaveBeenCalledTimes(1)
@@ -230,16 +220,14 @@ describe('queue consumer 管线 retry 结果的延迟重发', () => {
     return makeOutboxStub({
       id: 9,
       messageId: 109,
-      payloadJson: JSON.stringify({ userId: 7, platform: 'test-platform', messageId: 109, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' })
+      payloadJson: JSON.stringify({ userId: 7, platform: 'fixture_a', messageId: 109, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' })
     })
   }
 
   function makeRetriableProviders() {
-    return {
-      get: jest.fn().mockReturnValue({
-        send: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
-      })
-    }
+    return makeResolver({
+      send: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
+    })
   }
 
   test('管线返回 retry 后成功发布延迟重试消息（含 delaySeconds 与 attempt+1），ack 原消息', async () => {
@@ -250,9 +238,7 @@ describe('queue consumer 管线 retry 结果的延迟重发', () => {
     await consumePushQueueBatch(makeBatch(message), {
       outbox: outbox as any,
       providers: makeRetriableProviders() as any,
-      queue: queue as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      queue: queue as any
     })
 
     expect(outbox.scheduleRetry).toHaveBeenCalledTimes(1)
@@ -274,9 +260,7 @@ describe('queue consumer 管线 retry 结果的延迟重发', () => {
     await consumePushQueueBatch(makeBatch(message), {
       outbox: outbox as any,
       providers: makeRetriableProviders() as any,
-      queue: queue as any,
-      maxRetries: 3,
-      retryBackoffMs: 2000
+      queue: queue as any
     })
 
 

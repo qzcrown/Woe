@@ -1,41 +1,44 @@
 # Woe
 
-Woe is a self-hosted, Gotify-compatible notification service running on Cloudflare Workers. It provides a REST API, a WebSocket message stream, and a Web UI for managing messages, applications, clients, users, and plugins.
+A self-hosted Gotify-compatible notification service on Cloudflare Workers, with message APIs, WebSocket streaming, a Web UI, and user/application/client/plugin management.
 
-## Features
+## Public scope
 
-- **Message API**: Gotify-compatible `POST /message` with JSON, form, multipart, query binding, and extras fields.
-- **Real-time stream**: subscribe through `/stream` with a client token; text `ping`/`pong` keep-alive is supported.
-- **Web UI**: login, message browsing with Markdown rendering, application/client/user management, and plugin configuration.
-- **Multi-user and media**: administrator elevation, registration toggle, credential rotation and expiry; icons are stored in Cloudflare R2 with a default-image fallback.
+This build includes **displayer** and **Webhooker**. AI Tagger and vendor mobile-push plugins, their dedicated forms and message actions are excluded. Generic plugin jobs, secrets, quotas, tags, AI provider/runtime and push reliability code remain source extension points; they do not enable AI or mobile push by default.
 
-## Authentication and message contract
+Plugins are statically compiled source, with no upload or runtime installation endpoint. Webhooker delivers asynchronously through a separate Plugin Jobs Queue, only from message.create, with at most three attempts and possible duplicate delivery. It has no manual redelivery endpoint. Displayer returns display content through GET /plugin/{id}/display.
 
-- Basic Authentication is used for user operations, administrator elevation, and initialization.
-- Application Tokens (`X-Gotify-Key`) send messages to `POST /message`; Client Tokens serve Web/client sessions and `/stream`; Bearer is equivalent to `X-Gotify-Key`.
-- Newly issued app/client tokens use the `gtfy…` EdDSA format. Legacy `A…`/`C…` tokens remain valid, and full tokens are returned only by create or rotate responses.
-- Message `priority` accepts **integers** and preserves their values. The frontend displays and filters four levels: low (≤0), normal (1), high (2), and emergency (≥3). Manual sending and application creation controls offer **four levels (0–3)**. Omitted or JSON null priority inherits the application default.
+## Deployment and upgrades
 
-## First-time setup and sign-in
+Follow the [English deployment guide](DEPLOY.en.md) or [中文部署指南](DEPLOY.md).
 
-**Deployment does not automatically create a default administrator account.** `DEFAULT_ADMIN_USER` (default: `admin`) and `DEFAULT_ADMIN_PASSWORD` (set through a Wrangler Secret) only authorize first-time initialization; they are not credentials for everyday sign-in.
+Use Node.js ≥22.12, a Cloudflare account, D1, R2, Images, a Durable Object, and the Plugin Jobs Queue and master key required by Webhooker.
 
-After deployment, open `/setup`. Enter the bootstrap credentials in the “Initialization Token” username/password fields, then choose the first actual administrator's username, password, and password confirmation. Once initialization succeeds, sign in with the administrator account you created.
+```bash
+npm ci
+npm --prefix frontend ci
+npx wrangler login
+cp example.wrangler.toml wrangler.toml
+# Create resources, replace IDs/routes and set Secrets as described in DEPLOY.en.md
+npm run build:frontend
+npm run deploy
+```
 
-Use a different username and an independent strong password for the administrator account. **Do not reuse both the bootstrap username and password as the administrator's credentials**, because sign-in rejects that exact combination. Initialization can succeed only once; changing `DEFAULT_ADMIN_*` does not change an existing administrator account.
+Default functionality needs no Workers AI, QUOTA_KV or push queue (PUSH_QUEUE). Add bindings only when implementing an extension that declares the corresponding capabilities. Retained framework code does not mean every full-source plugin is available.
 
-See [Initialize the administrator](DEPLOY.en.md#5-initialize-the-administrator) for the full steps.
+## Initialization and authentication
 
-## Public plugin boundary
+Deployment does not create an everyday administrator. DEFAULT_ADMIN_USER (default admin) and the DEFAULT_ADMIN_PASSWORD Secret only authorize first initialization. Open /setup, enter bootstrap credentials and create the actual administrator. See [Initialize the administrator](DEPLOY.en.md#5-initialize-the-administrator). Bootstrap credentials cannot sign in normally; do not use both the same username and password for the actual administrator.
 
-The public build contains only **displayer**, a display-plugin example that renders messages on a standalone page (`GET /display/{id}`). It does not execute webhook or mobile-push actions.
+Basic authenticates user management, elevation and initialization. Application tokens send messages; client tokens authenticate clients and /stream. Bearer and X-Gotify-Key are supported. Full new credentials are returned only on creation or application rotation; application lists omit tokens and detail returns the stored form (the public form for enhanced tokens).
 
-Mobile-push and webhook transport plugins are not included in the public repository. The core push pipeline and plugin API remain extension points; without a transport plugin, new messages do not trigger mobile pushes or webhook calls.
+Priority preserves safe integers. The UI groups low≤0, normal1, high2 and urgent≥3; manual controls offer 0–3. Missing values or JSON null use the application's default.
 
-## Documentation
+## Operations
 
-- [中文部署指南](DEPLOY.md)
-- [English deployment guide](DEPLOY.en.md): resource creation, configuration, secrets, build, deployment, initialization, upgrades, and troubleshooting.
+Saving Webhooker configuration requires PLUGIN_SECRET_MASTER_KEY even without authToken. Retain the existing master key and version across upgrades. A successful message request does not prove Webhook delivery: inspect jobs and the downstream receiver.
+
+Non-administrator users need plugin permission, and instances need saved configuration and explicit enablement. Outbound requests default to HTTPS with static private-address checks; see the guide for DNS limitations. See the deployment guide for policy overrides, masked secrets, upgrades and rollback.
 
 ## License
 

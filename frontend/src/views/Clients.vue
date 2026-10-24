@@ -90,7 +90,7 @@ const editingClient = ref<Client | null>(null)
 
 
 const getPlatformText = (platform?: string): string => {
-  if (!platform) return t('clients.unknown')
+  if (!platform || platform === 'unknown') return t('clients.unknown')
   if (platform === 'web') return 'Web'
   return platform
 }

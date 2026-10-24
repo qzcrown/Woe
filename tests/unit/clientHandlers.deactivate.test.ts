@@ -26,7 +26,7 @@ function seedOutbox(
   const base: typeof pushOutbox.$inferInsert = {
     userId: 7,
     messageId: Math.floor(Math.random() * 1e9),
-    platform: 'test-platform',
+    platform: 'fixture_a',
     clientId: 11,
     payloadJson: '{"title":"t"}',
     status: 'pending',

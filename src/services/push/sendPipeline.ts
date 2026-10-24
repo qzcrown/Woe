@@ -16,11 +16,11 @@
 
 import { PushOutboxJob, PushOutboxService, PushTargetLookup } from "./outboxService.ts";
 import {
+  DEFAULT_PUSH_DELIVERY_POLICY,
   ProviderSendInput,
-  ProviderSendResult,
-  PushPlatform,
+  ProviderResolver,
   SUSPEND_RETRY_AT_DELAY_MS
-} from "./providers/types.ts";
+} from "./contracts.ts";
 
 
 
@@ -39,13 +39,8 @@ export interface SendPipelineDeps {
     PushOutboxService,
     "getPushTargetByClientId" | "markSuccess" | "scheduleRetry" | "markDead" | "suspend"
   > & { invalidateClient?: (clientId: number, reason: string) => Promise<void> };
-  providers: {
-    get(platform: PushPlatform): { send(input: ProviderSendInput): Promise<ProviderSendResult> } | null;
-  };
 
-  maxRetries?: number;
-
-  retryBackoffMs?: number;
+  providers: ProviderResolver;
 
   now?: () => number;
 }
@@ -131,8 +126,10 @@ function targetChangedDuringSend(before: SendTargetSnapshot, after: PushTargetLo
 
 
 export async function processClaimedJob(deps: SendPipelineDeps, job: PushOutboxJob): Promise<SendPipelineResult> {
-  const maxRetries = deps.maxRetries ?? 3;
-  const retryBackoffMs = deps.retryBackoffMs ?? 2000;
+
+  const policy = deps.providers.getPolicy(job.platform) ?? DEFAULT_PUSH_DELIVERY_POLICY;
+  const maxRetries = policy.maxRetries;
+  const retryBackoffMs = policy.retryBackoffMs;
   const now = deps.now ?? Date.now;
 
 
@@ -237,15 +234,27 @@ export async function processClaimedJob(deps: SendPipelineDeps, job: PushOutboxJ
 
   const nextAttempt = job.attemptCount + 1;
   const errorMessage = result.errorMessage || result.errorCode || "Push send failed";
-  if (result.invalidateToken && !target.legacy && target.clientId != null && deps.outbox.invalidateClient) {
-    const reason = errorMessage;
-    await deps.outbox.invalidateClient(target.clientId, reason);
-    await deps.outbox.markDead(job.id, nextAttempt, errorMessage);
-    return { action: "dead" };
-  }
-  if (result.suspend) {
+
+
+  if (result.failureKind === "suspend") {
     await deps.outbox.suspend(job.id, buildSuspendRetryAt(), `Suspended: ${errorMessage}`);
     return { action: "suspend" };
+  }
+
+
+
+  if (
+    result.failureKind === "invalid-target" &&
+    !target.legacy &&
+    target.clientId != null &&
+    deps.outbox.invalidateClient
+  ) {
+    await deps.outbox.invalidateClient(target.clientId, `Invalid push token: ${errorMessage}`);
+
+
+
+    await deps.outbox.markDead(job.id, nextAttempt, errorMessage);
+    return { action: "dead" };
   }
 
 

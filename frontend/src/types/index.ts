@@ -253,6 +253,59 @@ export interface AvailablePlugin {
 
 
 
+export type MessageJobStatus = 'pending' | 'success' | 'failed' | 'dead'
+
+
+export interface MessageJobError {
+  code: string
+  message: string
+}
+
+
+
+
+
+export interface MessageJob {
+  jobId: number
+  pluginId: number
+  status: MessageJobStatus
+  result: unknown | null
+  error: MessageJobError | null
+  createdAt: string
+  completedAt: string | null
+}
+
+export interface MessageJobsResponse {
+  messageDeleted: boolean
+  jobs: MessageJob[]
+}
+
+export interface TriggerMessageJobResponse {
+  jobId: number
+  status: 'pending'
+}
+
+
+
+
+export interface AiQuotaUser {
+  userId: number
+  pluginId: number
+  defaultLimit: number
+  overrideLimit: number | null
+  effectiveLimit: number
+  usageDay: string | null
+  usageCount: number
+  usageToday: number
+  source: 'override' | 'default'
+}
+
+export interface AiQuotaListResponse {
+  users: AiQuotaUser[]
+}
+
+
+
 
 
 

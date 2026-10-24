@@ -67,7 +67,7 @@ describe('ClientHandlers device upsert', () => {
 
     const res = await handlers.createClient(7, {
       name: 'Pixel 9',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: 'device-abc',
       deviceToken: 'new-push-token',
       appVersion: '  ',
@@ -98,7 +98,7 @@ describe('ClientHandlers device upsert', () => {
 
     const res = await handlers.createClient(7, {
       name: 'Pixel 9',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: 'device-abc',
       deviceToken: 'new-push-token'
     })
@@ -117,7 +117,7 @@ describe('ClientHandlers device upsert', () => {
 
       const res = await handlers.createClient(7, {
         name: 'Pixel 9',
-        platform: 'test-platform',
+        platform: 'fixture_a',
         deviceUid: 'device-abc',
         deviceToken: 'new-push-token'
       })
@@ -135,7 +135,7 @@ describe('ClientHandlers device upsert', () => {
 
     const res = await handlers.createClient(7, {
       name: 'Mate 70',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: 'device-new',
       deviceToken: 'token-new'
     })
@@ -161,7 +161,7 @@ describe('ClientHandlers device upsert', () => {
 
     const res = await handlers.createClient(7, {
       name: 'Reinstalled device',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: 'new-device-uid',
       deviceToken: 'stable-hms-token'
     })
@@ -191,7 +191,7 @@ describe('ClientHandlers device upsert', () => {
 
     const res = await handlers.createClient(7, {
       name: 'Pixel 9',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: 'device-abc'
     })
     const body = await res.json() as any
@@ -214,7 +214,7 @@ describe('ClientHandlers device upsert', () => {
 
       const res = await handlers.createClient(7, {
         name: 'Renamed',
-        platform: 'test-platform-alt',
+        platform: 'fixture_b',
         deviceUid: 'device-abc'
       })
       expect(res.status).toBe(200)
@@ -231,7 +231,7 @@ describe('ClientHandlers device upsert', () => {
 
     const first = await handlers.createClient(7, {
       name: 'First Name',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: 'device-xyz',
       deviceToken: 'push-1'
     })
@@ -240,7 +240,7 @@ describe('ClientHandlers device upsert', () => {
 
     const second = await handlers.createClient(7, {
       name: 'Second Name',
-      platform: 'test-platform',
+      platform: 'fixture_a',
       deviceUid: 'device-xyz',
       deviceToken: 'push-2'
     })
@@ -319,7 +319,7 @@ describe('ClientHandlers device upsert 冲突路径过期列全量替换（最�
 
       const res = await handlers.createClient(7, {
         name: 'Pixel 9',
-        platform: 'test-platform',
+        platform: 'fixture_a',
         deviceUid: 'device-abc',
         deviceToken: 'new-push-token'
       })
@@ -357,7 +357,7 @@ describe('ClientHandlers device upsert 冲突路径过期列全量替换（最�
 
       const res = await handlers.createClient(7, {
         name: 'Pixel 9',
-        platform: 'test-platform',
+        platform: 'fixture_a',
         deviceUid: 'device-abc',
         deviceToken: 'new-push-token',
         expiresAfterInactivitySeconds: 3600

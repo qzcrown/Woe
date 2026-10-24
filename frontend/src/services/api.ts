@@ -16,7 +16,11 @@ import type {
   UpdateUserProfile,
   ChangePasswordRequest,
   AvailablePlugin,
+  MessageJobsResponse,
+  TriggerMessageJobResponse,
+  AiQuotaListResponse,
 } from '@/types'
+import { QUOTA_NAMESPACE } from '@/utils/quota'
 import {
   ApiError,
   ValidationError,
@@ -346,6 +350,38 @@ export const messageApi = {
   deleteAllMessages: () => api.delete('/message'),
 
   deleteMessage: (id: number) => api.delete(`/message/${id}`),
+}
+
+
+
+
+
+
+
+export const messageJobsApi = {
+
+  trigger: (messageId: number, pluginId: number) =>
+    api.post<TriggerMessageJobResponse>(`/message/${messageId}/jobs`, { pluginId }),
+
+
+  list: (messageId: number, pluginId?: number) =>
+    api.get<MessageJobsResponse>(
+      `/message/${messageId}/jobs`,
+      pluginId === undefined ? undefined : { params: { pluginId } }
+    ),
+}
+
+
+export const adminQuotaApi = {
+  list: () => api.get<AiQuotaListResponse>(`/admin/quotas/${QUOTA_NAMESPACE}/users`),
+
+
+  setLimit: (userId: number, limit: number) =>
+    api.put(`/admin/quotas/${QUOTA_NAMESPACE}/${userId}`, { limit }),
+
+
+  clearLimit: (userId: number) =>
+    api.put(`/admin/quotas/${QUOTA_NAMESPACE}/${userId}`, { limit: null }),
 }
 
 export const pluginApi = {

@@ -13,10 +13,93 @@ import { BUILTIN_PLUGINS } from "../constants/builtinPlugins.ts";
 import { ImageCompressionError, ImageCompressionService } from "../services/imageCompressionService.ts";
 import { randomTokenString, TOKEN_RANDOM_LENGTH } from "../middleware/auth.ts";
 import { normalizeMediaPath } from "../utils/mediaPath.ts";
+import { getPluginSecretFields } from "../plugins/jobs/registry.ts";
+import {
+  WEBHOOKER_MODULE_PATH,
+  resolveWebhookerConfig
+} from "../plugins/builtin/webhooker/config.ts";
+import { parse as parseYaml } from "yaml";
+import { PluginSecretError, PluginSecretService } from "../services/pluginSecretService.ts";
+import { safeErrorKind } from "../utils/safeError.ts";
+import type { Env } from "../types/index.ts";
 
 
 export class PluginHandlers {
-  constructor(private drizzle: DrizzleDB) {}
+  constructor(private drizzle: DrizzleDB, private env?: Env) {}
+
+
+
+
+
+  private getSecretFields(modulePath: string): readonly string[] {
+    return getPluginSecretFields(modulePath).filter(
+      (path) => typeof path === "string" && path.length > 0
+    );
+  }
+
+
+
+
+
+
+  private invalidConfigResponse(modulePath: string, configYaml: string): Response | null {
+    let parser: ((raw: unknown) => { ok: boolean }) | null = null;
+    let errorDescription = "";
+    if (modulePath === WEBHOOKER_MODULE_PATH) {
+      parser = resolveWebhookerConfig;
+      errorDescription = "Invalid Webhooker config";
+    }
+    if (!parser) return null;
+
+    let parsedConfig: unknown;
+    try {
+      parsedConfig = parseYaml(configYaml);
+    } catch {
+      parsedConfig = undefined;
+    }
+    if (parser(parsedConfig).ok) return null;
+    return ApiResponse.json(
+      {
+        error: "Bad Request",
+        errorCode: "config",
+        errorDescription
+      },
+      400
+    );
+  }
+
+
+
+
+
+  private mapPluginSecretError(error: unknown): Response | null {
+    if (!(error instanceof PluginSecretError)) return null;
+
+    switch (error.code) {
+      case 'secret-config':
+        return ApiResponse.json(
+          { error: "Bad Request", errorCode: "secret-config", errorDescription: "Invalid plugin config" },
+          400
+        );
+      case 'secret-reentry-required':
+        return ApiResponse.json(
+          { error: "Conflict", errorCode: "secret-reentry-required", errorDescription: "Secret must be re-entered" },
+          409
+        );
+      case 'secret-decrypt-failed':
+        return ApiResponse.json(
+          { error: "Conflict", errorCode: "secret-decrypt-failed", errorDescription: "Stored secret cannot be decrypted" },
+          409
+        );
+      case 'secret-key-unavailable':
+        return ApiResponse.json(
+          { error: "Service Unavailable", errorCode: "secret-key-unavailable", errorDescription: "Secret storage is unavailable" },
+          503
+        );
+      default:
+        return null;
+    }
+  }
 
 
 
@@ -154,7 +237,22 @@ export class PluginHandlers {
       }
 
 
-      const configYaml = result.configYaml || "";
+      let configYaml = result.configYaml || "";
+
+
+      const secretFields = this.getSecretFields(result.modulePath);
+      if (configYaml && secretFields.length > 0) {
+        try {
+          configYaml = await new PluginSecretService(this.env).maskConfigForRead({
+            configYaml,
+            secretFields
+          });
+        } catch (error) {
+          const mapped = this.mapPluginSecretError(error);
+          if (mapped) return mapped;
+          throw error;
+        }
+      }
 
 
       if (!configYaml) {
@@ -220,7 +318,11 @@ export class PluginHandlers {
 
 
       const plugin = await this.drizzle
-        .select({ id: pluginConfigs.id, modulePath: pluginConfigs.modulePath })
+        .select({
+          id: pluginConfigs.id,
+          modulePath: pluginConfigs.modulePath,
+          encryptedSecret: pluginConfigs.encryptedSecret
+        })
         .from(pluginConfigs)
         .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
         .get();
@@ -247,13 +349,48 @@ export class PluginHandlers {
       const configYaml = await request.text();
 
 
-      await this.drizzle
-        .update(pluginConfigs)
-        .set({
-          configYaml,
-          updatedAt: sql`CURRENT_TIMESTAMP`
-        })
-        .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`);
+
+      const invalidConfig = this.invalidConfigResponse(plugin.modulePath, configYaml);
+      if (invalidConfig) return invalidConfig;
+
+
+
+      const secretFields = this.getSecretFields(plugin.modulePath);
+
+      if (secretFields.length > 0) {
+        let prepared: { configYaml: string; encryptedSecret: string | null };
+        try {
+          prepared = await new PluginSecretService(this.env).processConfigForSave({
+            pluginId,
+            userId,
+            configYaml,
+            encryptedSecret: plugin.encryptedSecret ?? null,
+            secretFields
+          });
+        } catch (error) {
+          const mapped = this.mapPluginSecretError(error);
+          if (mapped) return mapped;
+          throw error;
+        }
+
+
+        await this.drizzle
+          .update(pluginConfigs)
+          .set({
+            configYaml: prepared.configYaml,
+            encryptedSecret: prepared.encryptedSecret,
+            updatedAt: sql`CURRENT_TIMESTAMP`
+          })
+          .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`);
+      } else {
+        await this.drizzle
+          .update(pluginConfigs)
+          .set({
+            configYaml,
+            updatedAt: sql`CURRENT_TIMESTAMP`
+          })
+          .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`);
+      }
 
       try {
         const { PluginManager } = await import('../plugins/manager.ts');
@@ -262,7 +399,9 @@ export class PluginHandlers {
       } catch {}
       return ApiResponse.json({});
     } catch (error) {
-      console.error("Error updating plugin config:", error);
+
+
+      console.error("Error updating plugin config:", safeErrorKind(error));
       return ApiResponse.error("Database error", 500, "Failed to update plugin config");
     }
   }

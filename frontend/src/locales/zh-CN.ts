@@ -216,6 +216,7 @@ export default {
     unknownApplication: '未知应用',
     applicationNotFound: '应用不存在'
   },
+  messageTags: { title: '标签' },
   applications: {
     title: '应用管理',
     add: '添加应用',
@@ -381,7 +382,29 @@ export default {
     disabled: '已禁用',
     enabled: '已启用',
     toggleDisabledError: '更改用户状态失败：{error}',
-    avatarDeleteConfirm: '确定要删除用户头像吗？'
+    avatarDeleteConfirm: '确定要删除用户头像吗？',
+    aiQuota: {
+      title: 'AI 任务插件 配额',
+      defaultLimit: '默认限额',
+      overrideLimit: '覆盖限额',
+      effectiveLimit: '生效限额',
+      usageToday: '今日已用',
+      source: '来源',
+      inherited: '默认（未覆盖）',
+      disabled: '已禁用',
+      sourceDefault: '默认',
+      sourceOverride: '覆盖',
+      limitPlaceholder: '输入非负整数',
+      set: '设置限额',
+      clear: '清除覆盖',
+      saveSuccess: '配额已更新',
+      saveError: '更新配额失败',
+      loadError: '加载 AI 配额失败',
+      unavailable: '配额服务暂时不可用',
+      invalidLimit: '配额必须是非负整数',
+      emptyLimit: '请输入限额后再设置；如需回落默认限额，请使用「清除覆盖」',
+      zeroHint: '设置为 0 表示禁用该用户的 AI 任务插件；清除覆盖则回落默认限额。'
+    }
   },
   editApplication: {
     title: '编辑应用',
