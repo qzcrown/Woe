@@ -141,7 +141,7 @@ test('vue templates and toast calls contain no hardcoded UI strings', async () =
 
     lines.forEach((line, idx) => {
       const inTemplate = templateStart !== -1 && idx > templateStart && idx < templateEnd
-      const bare = line.replace(/<!--.*?-->/g, '').replace(/&[a-zA-Z]+;/g, '')
+      const bare = line.replace(/<!--[\s\S]*?--!?>/g, '').replace(/&[a-zA-Z]+;/g, '')
 
       if (inTemplate) {
         const textHit = bare.match(textNodePattern)
