@@ -172,8 +172,10 @@ describe('API contract', () => {
     const pluginConfRequired = document.components?.schemas?.PluginConf?.required ?? []
     const versionInfoRequired = document.components?.schemas?.VersionInfo?.required ?? []
 
+
+    expect(applicationRequired).not.toContain('token')
     expect(applicationRequired).toEqual(
-      expect.arrayContaining(['id', 'token', 'name', 'sortKey', 'description', 'internal', 'image'])
+      expect.arrayContaining(['id', 'name', 'sortKey', 'description', 'internal', 'image'])
     )
     expect(pluginConfRequired).toEqual(
       expect.arrayContaining(['id', 'name', 'token', 'modulePath', 'enabled', 'capabilities'])
@@ -181,5 +183,32 @@ describe('API contract', () => {
     expect(versionInfoRequired).toEqual(
       expect.arrayContaining(['version', 'commit', 'buildDate'])
     )
+  })
+
+  test('api-contract fixture application token visibility is described per operation, not by the old empty-string claim', () => {
+
+
+    const listDescription = readOperation('/application', 'get').description as string
+    expect(listDescription).toContain('omit')
+    expect(listDescription).not.toContain('`token: ""`')
+
+
+    const detailDescription = readOperation('/application/{id}', 'get').description as string
+    expect(detailDescription).toContain('public')
+    expect(detailDescription).toContain('legacy')
+    expect(detailDescription).not.toContain('empty `token` string')
+
+    expect(Object.keys(readOperation('/application/{id}', 'get').responses ?? {})).toContain('404')
+
+
+    const userAppsDescription = readOperation('/user/{id}/applications', 'get').description as string
+    expect(userAppsDescription).toContain('omit')
+    expect(userAppsDescription).not.toContain('`token: ""`')
+
+
+    const imageDeleteDescription = readOperation('/application/{id}/image', 'delete').description as string
+    expect(imageDeleteDescription).toContain('still returns `token: ""`')
+    const imageUploadDescription = readOperation('/application/{id}/image', 'post').description as string
+    expect(imageUploadDescription).toContain('stored token value')
   })
 })

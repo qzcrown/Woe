@@ -12,7 +12,7 @@ import { Hono } from "hono";
 import { HonoEnv } from "../types/hono.ts";
 import { createDrizzle } from "../drizzle/index.ts";
 import { Authenticator } from "../middleware/auth.ts";
-import { MessageHandlers, MessageCreateTarget, resolveMessageCreateTarget } from "../handlers/messageHandlers.ts";
+import { MessageHandlers, MessageCreateTarget, authenticateMessageCreate, resolveMessageCreateTarget } from "../handlers/messageHandlers.ts";
 import { ApiResponse } from "../utils/response.ts";
 import { DurableObjectMessageStreamHub } from "../services/messageStreamHub.ts";
 import { PushOutboxService } from "../services/push/outboxService.ts";
@@ -94,6 +94,19 @@ message.post("/", async (c) => {
 
 
 
+
+  const authenticator = new Authenticator(drizzle);
+  let auth;
+  try {
+    auth = await authenticateMessageCreate(authenticator, c.req.raw, c.env);
+  } catch (error) {
+    console.error("Failed to authenticate message create:", error);
+    return ApiResponse.error("Internal Server Error", 500, "Internal server error");
+  }
+  if (auth instanceof Response) return auth;
+
+
+
   const bound = await parseMessageCreateRequest(c.req.raw);
   if (!bound.ok) return bound.response;
   const body: MessageCreateBody = bound.data;
@@ -105,7 +118,6 @@ message.post("/", async (c) => {
   }
   const fields = validated.value;
 
-  const authenticator = new Authenticator(drizzle);
   const streamHub = c.env.MESSAGE_STREAM_HUB
     ? new DurableObjectMessageStreamHub(c.env.MESSAGE_STREAM_HUB)
     : undefined;
@@ -114,7 +126,7 @@ message.post("/", async (c) => {
   let target: MessageCreateTarget | Response;
   try {
 
-    target = await resolveMessageCreateTarget(authenticator, drizzle, c.req.raw, c.env, body);
+    target = await resolveMessageCreateTarget(auth, drizzle, body);
   } catch (error) {
     console.error("Failed to resolve message create target:", error);
     return ApiResponse.error("Internal Server Error", 500, "Internal server error");

@@ -3,7 +3,10 @@
     <div class="modal-content" @click.stop>
       <div class="modal-header">
         <h3>{{ t('editProfile.title') }}</h3>
-        <button @click="onClose" class="close-btn">&times;</button>
+        <button type="button" @click="onClose" class="close-btn"
+          :title="t('common.close')" :aria-label="t('common.close')">
+          <X :size="16" aria-hidden="true" />
+        </button>
       </div>
 
       <form @submit.prevent="onSubmit" class="profile-form">
@@ -85,6 +88,7 @@ import type { User } from '@/types'
 import { userApi } from '@/services/api'
 import EditableAvatar from './EditableAvatar.vue'
 import ChangePasswordModal from './ChangePasswordModal.vue'
+import { X } from '@lucide/vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { useAlert } from '@/composables/useAlert'
 
@@ -283,7 +287,6 @@ const onClose = () => {
 .close-btn {
   background: none;
   border: none;
-  font-size: 24px;
   cursor: pointer;
   color: var(--color-text-tertiary);
   padding: 0;
@@ -297,6 +300,11 @@ const onClose = () => {
 
 .close-btn:hover {
   color: var(--color-text-primary);
+}
+
+.close-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .profile-form {

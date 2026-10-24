@@ -22,7 +22,16 @@
       <p class="token-label">{{ t('createApplication.tokenLabel') }}</p>
       <div class="token-value">
         <code>{{ createdToken }}</code>
-        <button type="button" class="btn copy" @click="copyCreatedToken">{{ copied ? t('createApplication.tokenCopied') : t('createApplication.copyToken') }}</button>
+        <button
+          type="button"
+          class="btn copy"
+          :title="copied ? t('createApplication.tokenCopied') : t('createApplication.copyToken')"
+          :aria-label="copied ? t('createApplication.tokenCopied') : t('createApplication.copyToken')"
+          @click="copyCreatedToken"
+        >
+          <Check v-if="copied" :size="14" aria-hidden="true" />
+          <Copy v-else :size="14" aria-hidden="true" />
+        </button>
       </div>
       <p class="token-hint">{{ t('createApplication.tokenHint') }}</p>
     </div>
@@ -37,11 +46,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Check, Copy } from '@lucide/vue'
 import BaseModal from './BaseModal.vue'
 import { applicationApi } from '@/services/api'
-import { authService } from '@/services/auth'
+import { authService, clientTokenStorageKey } from '@/services/auth'
+import { showError } from '@/utils/errorHandler'
+import { derivePublicForm, isEnhancedTokenForm } from '@/utils/enhancedToken'
+
+
+const COPY_FEEDBACK_MS = 1500
 
 const { t } = useI18n()
 
@@ -56,45 +71,124 @@ const error = ref('')
 const createdToken = ref('')
 const copied = ref(false)
 
-const onClose = () => emit('close')
 
-const copyCreatedToken = async () => {
-  try {
-    await navigator.clipboard.writeText(createdToken.value)
-    copied.value = true
-  } catch {
-    copied.value = false
+let disposed = false
+
+let copySequence = 0
+let copyTimer: ReturnType<typeof setTimeout> | null = null
+
+const clearCopyFeedback = (): void => {
+
+
+  copySequence += 1
+  if (copyTimer) {
+    clearTimeout(copyTimer)
+    copyTimer = null
   }
+  copied.value = false
 }
 
+const onClose = () => {
+
+  disposed = true
+  clearCopyFeedback()
+  emit('close')
+}
+
+
+
+
+
+
+const copyCreatedToken = async () => {
+  const token = createdToken.value
+  if (!token) return
+  const seq = ++copySequence
+  try {
+    await navigator.clipboard.writeText(token)
+  } catch (err) {
+    if (disposed || copySequence !== seq) return
+    showError(err as Error, t('applications.copyTokenError'))
+    return
+  }
+  if (disposed || copySequence !== seq) return
+  if (copyTimer) clearTimeout(copyTimer)
+  copied.value = true
+  copyTimer = setTimeout(() => {
+    copyTimer = null
+    copied.value = false
+  }, COPY_FEEDBACK_MS)
+}
+
+
+const invalidateSession = (): void => {
+  createdToken.value = ''
+  clearCopyFeedback()
+}
+const unsubscribeSessionChanges = authService.subscribeSessionChanges(invalidateSession)
+const onStorageChange = (event: StorageEvent): void => {
+
+  if (event.key === null || event.key === clientTokenStorageKey()) invalidateSession()
+}
+onMounted(() => window.addEventListener('storage', onStorageChange))
+
 const onSubmit = async () => {
+  if (disposed || submitting.value || createdToken.value) return
   error.value = ''
   if (!name.value) {
     error.value = t('createApplication.nameRequired')
     return
   }
   submitting.value = true
+
+  const capturedSession = authService.getSessionRevision()
+  const capturedClientToken = authService.getClientCredentialForRevocation()
   try {
     const res = await applicationApi.createApplication({
       name: name.value,
       description: description.value || undefined,
       defaultPriority: defaultPriority.value,
     })
+    const sessionChanged =
+      authService.getSessionRevision() !== capturedSession ||
+      authService.getClientCredentialForRevocation() !== capturedClientToken
+    if (disposed || sessionChanged) return
 
-    if (res.data.token) {
-      authService.setAppToken(res.data.id, res.data.token)
-      createdToken.value = res.data.token
-    }
     emit('created')
-    if (!createdToken.value) {
-      emit('close')
+
+    const token: unknown = res.data?.token
+    if (typeof token !== 'string' || token.trim().length === 0 || (isEnhancedTokenForm(token) && derivePublicForm(token) === null)) {
+      showError(new Error('invalid create token response'), t('createApplication.invalidTokenResponse'))
+      onClose()
+      return
+    }
+
+
+    let stored = true
+    try {
+      authService.setAppToken(res.data.id, token)
+    } catch (err) {
+      console.error('Failed to persist created app token:', err)
+      stored = false
+    }
+    createdToken.value = token
+    if (!stored) {
+      showError(new Error('app token storage failed'), t('applications.tokenStorageError'))
     }
   } catch (e: any) {
+    if (disposed || capturedSession !== authService.getSessionRevision() || capturedClientToken !== authService.getClientCredentialForRevocation()) return
     error.value = e?.errorDescription || t('createApplication.createError')
   } finally {
     submitting.value = false
   }
 }
+
+onBeforeUnmount(() => {
+  disposed = true
+  unsubscribeSessionChanges()
+  window.removeEventListener('storage', onStorageChange)
+  clearCopyFeedback()
+})
 </script>
 
 <style scoped>
@@ -142,6 +236,17 @@ textarea { min-height: 80px; resize: vertical; }
   font-size: 0.875rem;
   color: var(--color-text-primary);
 }
-.btn.copy { background: #6366f1; color: var(--color-text-inverse); }
+.btn.copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+.btn.copy:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
 .token-hint { margin: 0; color: var(--color-warning); font-size: 0.8rem; }
 </style>

@@ -3,7 +3,10 @@
     <div class="modal-content" @click.stop>
       <div class="modal-header">
         <h2>{{ $t('plugins.editPlugin') }}</h2>
-        <button @click="close" class="close-btn">&times;</button>
+        <button type="button" @click="close" class="close-btn"
+          :title="$t('common.close')" :aria-label="$t('common.close')">
+          <X :size="16" aria-hidden="true" />
+        </button>
       </div>
 
       <div class="modal-body">
@@ -60,6 +63,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { X } from '@lucide/vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import PluginIcon from './PluginIcon.vue'
 import { pluginApi } from '@/services/api'
@@ -197,17 +201,24 @@ const save = async () => {
 .close-btn {
   background: none;
   border: none;
-  font-size: 1.5rem;
   cursor: pointer;
   color: var(--color-text-tertiary);
   padding: 0;
   width: 2rem;
   height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: var(--theme-transition);
 }
 
 .close-btn:hover {
   color: var(--color-text-primary);
+}
+
+.close-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .modal-body {

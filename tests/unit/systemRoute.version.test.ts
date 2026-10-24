@@ -45,6 +45,9 @@ describe('system route version metadata', () => {
 
     expect(response1.status).toBe(200)
     expect(response2.status).toBe(200)
+
+    expect(response1.headers.get('cache-control')).toBe('no-store')
+    expect(response2.headers.get('cache-control')).toBe('no-store')
     expect(body1.version).toBe(generatedVersion)
     expect(body2.version).toBe(generatedVersion)
     expect(body2.version).toBe(body1.version)

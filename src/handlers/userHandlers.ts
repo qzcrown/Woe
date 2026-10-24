@@ -484,7 +484,7 @@ export class UserHandlers {
       const mappedApps = apps.map(row => ({
         id: row.id,
 
-        token: "",
+
         name: row.name,
         description: row.description || "",
         internal: Boolean(row.internal),

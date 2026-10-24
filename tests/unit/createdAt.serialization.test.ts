@@ -283,7 +283,6 @@ describe('createdAt serialization ', () => {
     expect(body[0]).toEqual({
       id: 1,
 
-      token: '',
       name: 'App A',
       description: '',
       internal: false,

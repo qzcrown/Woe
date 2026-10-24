@@ -1,7 +1,14 @@
 <template>
   <Transition name="elevate-modal">
-    <div v-if="visible" class="elevate-modal-overlay" @click="handleOverlayClick">
-      <div class="elevate-modal-container" @click.stop>
+    <BaseModal
+      v-if="visible"
+      class="elevate-modal-shell"
+      max-width="420px"
+      :z-index="2000"
+      hide-close
+      @close="handleOverlayClick"
+    >
+      <template #title>
         <div class="elevate-modal-header">
           <div class="icon-wrapper">
             <svg v-if="mode === 'password'" class="icon lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -16,32 +23,34 @@
           </div>
           <h3 v-if="mode === 'password'" class="elevate-modal-title">{{ t('elevate.title') }}</h3>
         </div>
+      </template>
 
-        <div class="elevate-modal-body">
-          <p v-if="mode === 'password'" class="elevate-modal-message">{{ t('elevate.message') }}</p>
-          <p v-else class="elevate-modal-message">{{ t(messageKey) }}</p>
+      <div class="elevate-modal-body">
+        <p v-if="mode === 'password'" class="elevate-modal-message">{{ t('elevate.message') }}</p>
+        <p v-else class="elevate-modal-message">{{ t(messageKey) }}</p>
 
-          <template v-if="mode === 'password'">
-            <label class="elevate-modal-label" for="elevate-password-input">
-              {{ t('elevate.passwordLabel') }}
-            </label>
-            <input
-              id="elevate-password-input"
-              ref="passwordInput"
-              v-model="password"
-              type="password"
-              class="elevate-modal-input"
-              :class="{ 'has-error': !!error }"
-              autocomplete="current-password"
-              :disabled="loading"
-              @keyup.enter="handleSubmit"
-            />
-            <p v-if="error" class="elevate-modal-error" role="alert">
-              {{ error === 'wrongPassword' ? t('elevate.wrongPassword') : t('elevate.requestFailed') }}
-            </p>
-          </template>
-        </div>
+        <template v-if="mode === 'password'">
+          <label class="elevate-modal-label" for="elevate-password-input">
+            {{ t('elevate.passwordLabel') }}
+          </label>
+          <input
+            id="elevate-password-input"
+            ref="passwordInput"
+            v-model="password"
+            type="password"
+            class="elevate-modal-input"
+            :class="{ 'has-error': !!error }"
+            autocomplete="current-password"
+            :disabled="loading"
+            @keyup.enter="handleSubmit"
+          />
+          <p v-if="error" class="elevate-modal-error" role="alert">
+            {{ error === 'wrongPassword' ? t('elevate.wrongPassword') : t('elevate.requestFailed') }}
+          </p>
+        </template>
+      </div>
 
+      <template #footer>
         <div class="elevate-modal-footer">
           <button
             type="button"
@@ -62,19 +71,22 @@
             <span v-else>{{ t('elevate.confirm') }}</span>
           </button>
         </div>
-      </div>
-    </div>
+      </template>
+    </BaseModal>
   </Transition>
 </template>
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BaseModal from './BaseModal.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import type { ElevationMessageKey, ElevationModalError } from '@/composables/useElevatedAction'
 
 interface Props {
   visible: boolean
+
+  flowId?: number
 
   mode?: 'password' | 'message'
   loading?: boolean
@@ -90,6 +102,7 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  flowId: 0,
   mode: 'password',
   loading: false,
   error: null,
@@ -108,8 +121,8 @@ const passwordInput = ref<HTMLInputElement | null>(null)
 
 
 watch(
-  () => props.visible && props.mode === 'password',
-  (passwordSessionActive) => {
+  [() => props.visible && props.mode === 'password', () => props.flowId],
+  ([passwordSessionActive]) => {
     if (passwordSessionActive) {
       password.value = ''
       nextTick(() => passwordInput.value?.focus())
@@ -150,6 +163,7 @@ const handleCancel = () => {
   emit('cancel')
 }
 
+
 const handleOverlayClick = () => {
   if (props.closeOnOverlayClick && !props.loading) {
     handleCancel()
@@ -158,39 +172,19 @@ const handleOverlayClick = () => {
 </script>
 
 <style scoped>
-.elevate-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-  padding: 1rem;
-}
 
-.elevate-modal-container {
-  width: 100%;
-  max-width: 420px;
-  background: var(--color-bg-primary);
-  border-radius: 0.75rem;
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-  animation: elevateModalSlideIn 0.2s ease-out;
-}
-
-@keyframes elevateModalSlideIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+.elevate-modal-shell {
+  --modal-backdrop-padding: 1rem;
+  --modal-header-padding: 0;
+  --modal-header-border: none;
+  --modal-body-padding: 0;
+  --modal-footer-padding: 0;
+  --modal-footer-border: none;
+  --modal-footer-bg: transparent;
 }
 
 .elevate-modal-header {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -276,6 +270,7 @@ const handleOverlayClick = () => {
 }
 
 .elevate-modal-footer {
+  flex: 1;
   display: flex;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
@@ -323,6 +318,7 @@ const handleOverlayClick = () => {
   background-color: var(--color-primary-hover);
 }
 
+
 .elevate-modal-enter-active,
 .elevate-modal-leave-active {
   transition: opacity 0.2s ease;
@@ -333,23 +329,18 @@ const handleOverlayClick = () => {
   opacity: 0;
 }
 
-.elevate-modal-enter-active .elevate-modal-container,
-.elevate-modal-leave-active .elevate-modal-container {
+.elevate-modal-enter-active :deep(.modal-container),
+.elevate-modal-leave-active :deep(.modal-container) {
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
-.elevate-modal-enter-from .elevate-modal-container,
-.elevate-modal-leave-to .elevate-modal-container {
+.elevate-modal-enter-from :deep(.modal-container),
+.elevate-modal-leave-to :deep(.modal-container) {
   transform: scale(0.95);
   opacity: 0;
 }
 
 @media (max-width: 640px) {
-  .elevate-modal-container {
-    max-width: 100%;
-    margin: 1rem;
-  }
-
   .elevate-modal-footer {
     flex-direction: column;
   }

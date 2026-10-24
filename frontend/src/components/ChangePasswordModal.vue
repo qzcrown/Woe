@@ -68,7 +68,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseModal from './BaseModal.vue'
 import { userApi } from '@/services/api'
-import { useElevatedAction, isElevationCancelled } from '@/composables/useElevatedAction'
+import { useElevatedAction, isElevationCancelled, isElevationSessionChanged } from '@/composables/useElevatedAction'
 import {
   validatePassword,
   getPasswordStrengthColor,
@@ -145,7 +145,10 @@ const onSubmit = async () => {
     emit('updated')
     emit('close')
   } catch (e: any) {
-    if (!isElevationCancelled(e)) {
+    if (isElevationSessionChanged(e)) {
+
+      error.value = t('elevate.sessionChanged')
+    } else if (!isElevationCancelled(e)) {
       error.value = e?.errorDescription || t('users.updatePasswordError')
     }
   } finally {

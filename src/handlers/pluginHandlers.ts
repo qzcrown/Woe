@@ -4,8 +4,7 @@
 
 
 
-import { PluginConf } from "../types/index.ts";
-import { ApiResponse, parseJsonBody, safeJsonParse, formatDate } from "../utils/response.ts";
+import { ApiResponse, parseJsonBody, formatDate } from "../utils/response.ts";
 import { IMAGE_MAX_FILE_SIZE, validateImageFile, validateRawImageRequest } from "../utils/fileValidation.ts";
 import { DrizzleDB } from "../drizzle/index.ts";
 import { pluginConfigs, pluginLogs, userPluginPermissions } from "../models/index.ts";
@@ -41,25 +40,6 @@ export class PluginHandlers {
       ))
       .get();
     return !!permission;
-  }
-
-
-
-
-  private mapToPluginConf(row: any): PluginConf {
-    return {
-      id: row.id,
-      name: row.name,
-      token: row.token,
-      modulePath: row.module_path,
-      enabled: Boolean(row.enabled),
-      icon: row.icon ? normalizeMediaPath(row.icon) : row.icon,
-      capabilities: safeJsonParse(row.capabilities) || [],
-      author: row.author,
-      license: row.license,
-      website: row.website,
-      createdAt: formatDate(row.createdAt) ?? null
-    };
   }
 
 

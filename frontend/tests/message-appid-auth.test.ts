@@ -80,6 +80,8 @@ describe('createMessage 请求体（Gotify V3）', () => {
 
 
 
+
+
 describe('列表视图不消费 GET token 字段（Gotify V3 show-once）', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -132,29 +134,39 @@ describe('列表视图不消费 GET token 字段（Gotify V3 show-once）', () =
     })
     const wrapper = mountView(Applications)
     await flushPromises()
+    await flushPromises()
 
     const html = wrapper.html()
     expect(html).not.toContain(getToken)
     expect(html).not.toContain(`${getToken.substring(0, 8)}...${getToken.substring(getToken.length - 4)}`)
     expect(wrapper.find('.app-token').exists()).toBe(false)
     expect(wrapper.find('.regenerate-btn').exists()).toBe(true)
-    expect(wrapper.find('.copy-btn').exists()).toBe(false)
+    expect(wrapper.find('.token-copy-btn').exists()).toBe(false)
   })
 
-  it('Applications 列表仍展示本地已知（创建/轮换响应）token 并可复制', async () => {
-    const localToken = 'LOCAL-known-token-abc'
+  it('Applications 列表不提供令牌展示/复制入口;本地已知 token 不进 DOM', async () => {
+
+
+    const localToken = 'gtfya.AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+    const serverPublicForm = 'gtfya.zswVB9wd3XKVlRwpCIjwla25BE0bc9aW5t8GXWg71Pw'
     authService.setAppToken(5, localToken)
-    hoisted.get.mockResolvedValue({
-      data: [
-        { id: 5, token: 'GET-app-token-should-not-display', name: 'Demo', description: '', defaultPriority: 0, internal: false, lastUsed: '' }
-      ]
-    })
+    hoisted.get
+      .mockResolvedValueOnce({
+        data: [
+          { id: 5, token: undefined, name: 'Demo', description: '', defaultPriority: 0, internal: false, lastUsed: '' }
+        ]
+      })
+      .mockResolvedValueOnce({ data: { id: 5, token: serverPublicForm } })
     const wrapper = mountView(Applications)
     await flushPromises()
+    await flushPromises()
 
-    expect(wrapper.html()).toContain(`${localToken.substring(0, 8)}...${localToken.substring(localToken.length - 4)}`)
-    expect(wrapper.find('.copy-btn').exists()).toBe(true)
-    expect(wrapper.find('.regenerate-btn').exists()).toBe(false)
+
+    expect(wrapper.find('.app-token').exists()).toBe(false)
+    expect(wrapper.find('.token-copy-btn').exists()).toBe(false)
+    expect(wrapper.html()).not.toContain(localToken)
+    expect(wrapper.html()).not.toContain(serverPublicForm)
+    expect(wrapper.find('.regenerate-btn').exists()).toBe(true)
   })
 
   it('Clients 列表不展示 GET token，也不渲染 token 占位行', async () => {

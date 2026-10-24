@@ -1,5 +1,5 @@
 <template>
-  <BaseModal @close="emitClose">
+  <BaseModal max-width="640px" @close="emitClose">
     <template #title>
       <h2 class="modal-title">{{ $t('messages.messageDetail') }}</h2>
     </template>
@@ -149,10 +149,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-:deep(.modal-container) {
-  max-width: 640px;
-}
-
 .modal-title {
   font-size: 1.25rem;
   font-weight: 600;

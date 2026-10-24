@@ -17,18 +17,15 @@
 
 
 import { auth } from '../../src/routes/auth'
-import { Authenticator, hashPassword } from '../../src/middleware/auth'
-import {
-  generateEnhancedToken,
-  base64UrlEncode,
-  base64UrlDecode
-} from '../../src/utils/enhancedToken'
+import { Authenticator } from '../../src/middleware/auth'
+import { hashPasswordOnce } from '../helpers/passwordHash'
+import { generateEnhancedToken } from '../../src/utils/enhancedToken'
 import { createTestDb, asDrizzle, seedClient } from '../helpers/testDb'
 import type { TestDb } from '../helpers/testDb'
 import { makeD1Sqlite } from '../helpers/d1Sqlite'
 import { clients, pushOutbox } from '../../src/models'
 import { eq } from 'drizzle-orm'
-import { ed25519, ed25519ph } from '@noble/curves/ed25519.js'
+import { signFourFieldToken } from '../helpers/enhancedTokenTestSupport'
 
 const USER_PASSWORD = 'integration-pass-7'
 
@@ -49,7 +46,7 @@ async function makeAuthFixture(): Promise<AuthFixture> {
   openDbs.push(testDb)
 
   testDb.sqlite.exec('ALTER TABLE users ADD COLUMN pass text')
-  const passHash = await hashPassword(USER_PASSWORD)
+  const passHash = await hashPasswordOnce(USER_PASSWORD)
   testDb.sqlite
     .prepare('INSERT INTO users (id, name, pass, admin, disabled) VALUES (?, ?, ?, ?, ?)')
     .run(7, 'user7', passHash, 0, 0)
@@ -104,17 +101,6 @@ function seedOutbox(
   }
   const [row] = testDb.db.insert(pushOutbox).values(base).returning().all()
   return row
-}
-
-
-function signFourFieldToken(privateForm: string, iat: number): string {
-  const dot = privateForm.indexOf('.')
-  const prefix = privateForm.slice(0, dot)
-  const seed = base64UrlDecode(privateForm.slice(dot + 1))
-  if (!seed) throw new Error('test setup: privateForm seed 不可解码')
-  const publicKey = ed25519.getPublicKey(seed)
-  const sig = ed25519ph.sign(new TextEncoder().encode(`iat=${iat}`), seed)
-  return `${prefix}.${base64UrlEncode(publicKey)}.${iat}.${base64UrlEncode(sig)}`
 }
 
 afterEach(() => {

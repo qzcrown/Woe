@@ -238,7 +238,23 @@ describe("POST /message route behavior (app token | client token | basic)", () =
     errorSpy.mockRestore();
   });
 
+  test("先认证后绑定：无凭据 + malformed JSON → 401（不再先做 body 解析）", async () => {
+    const response = await message.fetch(
+      makePostRequest("{not-valid-json", {}),
+      mockEnv,
+      mockExecutionCtx
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unauthorized",
+      errorCode: 401,
+      errorDescription: "Application token, client token or Basic auth required",
+    });
+  });
+
   test("malformed JSON body: 400 Invalid JSON body", async () => {
+    mockRequireApp.mockResolvedValue({ userId: 1, resourceId: 5, tokenType: "app", isAdmin: false });
     const response = await message.fetch(
       makePostRequest("{not-valid-json", { "x-gotify-key": "Aapp-token" }),
       mockEnv,
@@ -254,6 +270,7 @@ describe("POST /message route behavior (app token | client token | basic)", () =
   });
 
   test("null JSON body: 400 Invalid JSON body (parseJsonBody 拒绝字面 null，不再流入字段守卫)", async () => {
+    mockRequireApp.mockResolvedValue({ userId: 1, resourceId: 5, tokenType: "app", isAdmin: false });
     const response = await message.fetch(
       makePostRequest(null, { "x-gotify-key": "Aapp-token" }),
       mockEnv,

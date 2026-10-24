@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
@@ -22,6 +22,11 @@ import { authService } from '@/services/auth'
 import { useAuthStore } from '@/stores/auth'
 import Layout from '@/components/Layout.vue'
 import i18n from '@/locales'
+
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 
 

@@ -315,6 +315,36 @@ describe("parseMessageCreateRequest — urlencoded：body 首值优先，query �
       });
     }
   });
+
+  test("extras=（显式空值）回退缺省：form 路径不设置 extras 字段", async () => {
+    const result = await parseMessageCreateRequest(
+      makeRequest("http://localhost/", {
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "message=hi&extras=",
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect("extras" in result.data).toBe(false);
+  });
+
+  test("extras=（显式空值）回退缺省：query 路径同样不设置", async () => {
+    const result = await parseMessageCreateRequest(makeRequest("http://localhost/?message=hi&extras="));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect("extras" in result.data).toBe(false);
+  });
+
+  test("混合序：body 与 query 多字段交叉时 body 首值全胜，query 仅补缺字段", async () => {
+    const result = await parseMessageCreateRequest(
+      makeRequest("http://localhost/?message=query&title=T&priority=9&appid=5", {
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "message=body&priority=2",
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toEqual({ message: "body", title: "T", priority: 2, appid: 5 });
+    }
+  });
 });
 
 describe("parseMessageCreateRequest — multipart：只绑文本字段，不合并 query", () => {

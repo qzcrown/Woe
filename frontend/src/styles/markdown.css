@@ -101,3 +101,19 @@
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
 }
+
+.markdown-body .code-btn.code-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem;
+  line-height: 1;
+}
+.markdown-body .code-btn.code-copy:focus-visible,
+.markdown-body .code-btn.code-format:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.markdown-body .code-btn.code-copy svg {
+  display: block;
+}

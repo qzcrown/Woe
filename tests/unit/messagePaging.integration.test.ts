@@ -47,6 +47,7 @@ import { makeD1Sqlite } from '../helpers/d1Sqlite';
 import { applications, messages } from '../../src/models';
 import type { TestDb } from '../helpers/testDb';
 import type { D1Database } from '@cloudflare/workers-types';
+import { makeExecutionCtxStub, type ExecutionCtxStub } from '../helpers/executionContext';
 
 const CURRENT_USER = 1;
 const OTHER_USER = 2;
@@ -66,7 +67,7 @@ interface PagedBody {
 interface Fixture {
   testDb: TestDb;
   env: Record<string, unknown>;
-  executionCtx: Record<string, unknown>;
+  executionCtx: ExecutionCtxStub;
 
   fetchMessage: (query: string) => Promise<Response>;
   fetchApplicationMessage: (appId: number, query: string) => Promise<Response>;
@@ -109,7 +110,7 @@ function makeFixture(): Fixture {
     batch: base.batch.bind(base),
   } as unknown as D1Database;
 
-  const executionCtx: any = { waitUntil: jest.fn() };
+  const executionCtx = makeExecutionCtxStub();
   const makeRequest = (path: string) =>
     new Request(`http://localhost${path}`, {
       method: 'GET',

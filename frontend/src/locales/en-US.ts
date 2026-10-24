@@ -13,6 +13,7 @@ export default {
     loading: 'Loading...',
     save: 'Save',
     cancel: 'Cancel',
+    close: 'Close',
     delete: 'Delete',
     edit: 'Edit',
     add: 'Add',
@@ -193,10 +194,12 @@ export default {
     codeCopy: 'Copy',
     copied: 'Copied',
     codeFormat: 'Format',
+    codeCopyError: 'Failed to copy code',
     previewRender: 'Render view',
     backToEdit: 'Back to edit',
     filterTags: 'Filter Tags',
     removeTag: 'Click to remove',
+    removeTagNamed: 'Remove tag {tag}',
     tagPlaceholder: 'Enter tag, press Enter to add',
     tagHint: 'Only letters, numbers, hyphens and underscores allowed',
     tagHistory: 'Tag History',
@@ -247,9 +250,13 @@ export default {
     deleteIconConfirm: 'Are you sure you want to delete the application icon?',
     deleteConfirmWithName: 'Are you sure you want to delete the application "{name}"? This action cannot be undone.',
 
-    regenerateToken: 'Regenerate Token',
-    regenerated: 'Token regenerated. Copy and store it now.',
-    regenerateFailed: 'Failed to regenerate token'
+    regenerateToken: 'Refresh Token',
+    regenerateAction: 'Refresh',
+    regenerated: 'Token refreshed. Copy and store it now.',
+    regenerateFailed: 'Failed to refresh token',
+
+    loadMore: 'Load more',
+    tokenStorageError: 'The new token was generated but could not be saved in this browser. Copy and save it before leaving.'
   },
   clients: {
     title: 'Client Management',
@@ -270,6 +277,7 @@ export default {
     noClientsFound: 'No clients found',
     copyToken: 'Copy Token',
     tokenCopied: 'Token copied to clipboard!',
+    copyTokenError: 'Failed to copy token',
     lastUsed: 'Last used',
     deleteConfirm: 'Are you sure you want to delete this client?',
     deleteSuccess: 'Client deleted successfully!',
@@ -302,6 +310,7 @@ export default {
     createdTitle: 'Client Created',
     tokenLabel: 'Client Token',
     tokenHint: 'Copy and store this token now — it will only be shown once and is no longer returned with the client list.',
+    invalidTokenResponse: 'The client was created, but the response did not contain a usable token. Check the clients list before creating another client.',
     done: 'Done'
   },
   users: {
@@ -400,11 +409,13 @@ export default {
     nameRequired: 'Name is required',
     createError: 'Failed to create application',
 
+
     createdTitle: 'Application Created',
     tokenLabel: 'Application Token',
-    tokenHint: 'Copy and store this token now — it will only be shown once.',
+    tokenHint: 'Copy and store this token now. The server returns the full new token only on creation or regeneration; a copy saved in this browser can be shown again after validation.',
     copyToken: 'Copy Token',
     tokenCopied: 'Token copied to clipboard!',
+    invalidTokenResponse: 'The application was created, but no usable token was returned. Please refresh it from the applications list.',
     done: 'Done'
   },
   applicationDetail: {
@@ -416,17 +427,17 @@ export default {
     defaultPriority: 'Default Priority:',
     lastUsed: 'Last Used:',
     internal: 'Internal:',
-    editApplication: 'Edit Application',
+    editApplication: 'Edit',
     copyToken: 'Copy Token',
-    deleteApplication: 'Delete Application',
+    deleteApplication: 'Delete',
     tokenTitle: 'Application Token',
     tokenDescription: 'Use this token to send messages to this application via the REST API.',
-    regenerateToken: 'Regenerate Token',
-    regenerateWarning: 'Are you sure you want to regenerate the token? The old token will be invalidated immediately and all consumers must update to the new one.',
-    regenerated: 'Token regenerated. Copy and store it now.',
-    regenerateFailed: 'Failed to regenerate token',
+    regenerateToken: 'Refresh Token',
+    regenerateWarning: 'Are you sure you want to refresh the token? The old token will be invalidated immediately and all consumers must update to the new one.',
+    regenerated: 'Token refreshed. Copy and store it now.',
+    regenerateFailed: 'Failed to refresh token',
 
-    tokenUnknownHint: 'For security, the token is no longer returned by the detail endpoint; it is shown only once when created or regenerated. Regenerate to view it.',
+
     showToken: 'Show token',
     hideToken: 'Hide token',
     recentMessages: 'Recent Messages',
@@ -586,6 +597,7 @@ export default {
     cancel: 'Cancel',
     wrongPassword: 'Incorrect password, please try again',
     relogin: 'Session information is missing, please log out and sign in again',
+    sessionChanged: 'A session change interrupted the elevation. If the action was already submitted, sign in again to verify the result.',
     attemptsExhausted: 'Too many attempts, the action has been cancelled',
     requestFailed: 'Verification failed, please try again'
   }

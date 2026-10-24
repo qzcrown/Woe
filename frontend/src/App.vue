@@ -33,6 +33,7 @@
     />
     <ElevateConfirmModal
       :visible="elevationModalOpen"
+      :flow-id="elevationModalFlowId"
       :mode="elevationModalMode"
       :loading="elevationModalLoading"
       :error="elevationModalError"
@@ -78,6 +79,7 @@ const { state: confirmState, handleConfirm, handleCancel } = useConfirmDialogPro
 const { state: alertState, handleConfirm: handleAlertConfirm } = useAlertProvider()
 const {
   isElevationModalOpen: elevationModalOpen,
+  elevationModalFlowId,
   elevationModalMode,
   elevationModalLoading,
   elevationModalError,

@@ -24,26 +24,6 @@ export class ApplicationHandlers {
 
 
 
-
-
-
-  private mapToApplication(row: any): Application {
-    return {
-      id: row.id,
-      token: "",
-      name: row.name,
-      sortKey: row.sortKey || "",
-      description: row.description || "",
-      internal: Boolean(row.internal),
-      image: normalizeMediaPath(row.image, DEFAULT_APP_IMAGE),
-      lastUsed: formatDate(row.lastUsed) || null,
-      createdAt: formatDate(row.createdAt) ?? null,
-      defaultPriority: row.defaultPriority || 0
-    };
-  }
-
-
-
   async updateLastUsed(applicationId: number): Promise<void> {
     try {
       await this.drizzle
@@ -80,7 +60,7 @@ export class ApplicationHandlers {
       const mappedApps = apps.map(row => ({
         id: row.id,
 
-        token: "",
+
         name: row.name,
         sortKey: row.sortKey || "",
         description: row.description || "",
@@ -204,7 +184,9 @@ export class ApplicationHandlers {
       const app: Application = {
         id: result.id,
 
-        token: "",
+
+
+        token: result.token,
         name: result.name,
         sortKey: result.sortKey || "",
         description: result.description || "",
@@ -216,7 +198,8 @@ export class ApplicationHandlers {
         defaultPriority: result.defaultPriority || 0
       };
 
-      return ApiResponse.json(app);
+
+      return ApiResponse.json(app, 200, { 'Cache-Control': 'private, no-store' });
     } catch (error) {
       return ApiResponse.error("Database error", 500, "Failed to retrieve application");
     }

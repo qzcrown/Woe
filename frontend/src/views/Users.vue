@@ -21,14 +21,23 @@
               </div>
             </div>
             <div class="user-actions">
-              <button @click="toggleUserDetails(user.id)" class="toggle-btn">
-                {{ expandedUsers.has(user.id) ? $t('users.hideDetails') : $t('users.showDetails') }}
+              <button type="button" class="toggle-btn" @click="toggleUserDetails(user.id)"
+                :aria-expanded="expandedUsers.has(user.id)">
+                <ChevronUp v-if="expandedUsers.has(user.id)" :size="14" aria-hidden="true" />
+                <ChevronDown v-else :size="14" aria-hidden="true" />
+                <span>{{ expandedUsers.has(user.id) ? $t('users.hideDetails') : $t('users.showDetails') }}</span>
               </button>
-              <button @click="editUser(user)" class="edit-btn">{{ $t('common.edit') }}</button>
+              <button type="button" class="edit-btn" @click="editUser(user)">
+                <Pencil :size="14" aria-hidden="true" />
+                <span>{{ $t('common.edit') }}</span>
+              </button>
               <button @click="toggleUserDisabled(user)" :class="['disable-btn', user.disabled ? 'enabled' : 'disabled']">
                 {{ user.disabled ? $t('common.enable') : $t('common.disable') }}
               </button>
-              <button @click="deleteUser(user.id)" class="delete-btn">{{ $t('common.delete') }}</button>
+              <button type="button" class="delete-btn" @click="deleteUser(user.id)">
+                <Trash2 :size="14" aria-hidden="true" />
+                <span>{{ $t('common.delete') }}</span>
+              </button>
             </div>
           </div>
 
@@ -66,10 +75,12 @@
                 <div class="detail-header">
                   <h4>{{ $t('common.plugins') }} ({{ getUserDetails(user.id)?.plugins?.length || 0 }})</h4>
                   <button
+                    type="button"
                     @click="openCreatePluginModal(user.id)"
                     class="add-plugin-small-btn"
                   >
-                    {{ $t('plugins.addPlugin') }}
+                    <Plus :size="12" aria-hidden="true" />
+                    <span>{{ $t('plugins.addPlugin') }}</span>
                   </button>
                 </div>
                 <div v-if="getUserDetails(user.id)?.plugins?.length" class="detail-list">
@@ -82,17 +93,21 @@
                     </div>
                     <div class="item-actions">
                       <button
+                        type="button"
                         @click="openEditPluginModal(plugin)"
                         class="edit-plugin-small-btn"
                       >
-                        {{ $t('common.edit') }}
+                        <Pencil :size="12" aria-hidden="true" />
+                        <span>{{ $t('common.edit') }}</span>
                       </button>
                       <button
+                        type="button"
                         @click="deleteUserPlugin(user.id, plugin.id, plugin.name)"
                         :class="['delete-plugin-small-btn', { loading: deletingUserPlugin?.userId === user.id && deletingUserPlugin?.pluginId === plugin.id }]"
                         :disabled="deletingUserPlugin?.userId === user.id && deletingUserPlugin?.pluginId === plugin.id"
                       >
-                        {{ $t('common.delete') }}
+                        <Trash2 :size="12" aria-hidden="true" />
+                        <span>{{ $t('common.delete') }}</span>
                       </button>
                     </div>
                   </div>
@@ -174,6 +189,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from '@lucide/vue'
 import Layout from '@/components/Layout.vue'
 import CreateUserModal from '@/components/CreateUserModal.vue'
 import EditUserModal from '@/components/EditUserModal.vue'
@@ -532,6 +548,9 @@ onMounted(async () => {
 }
 
 .toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.375rem 0.75rem;
   background-color: #6366f1;
   color: var(--color-text-inverse);
@@ -547,6 +566,9 @@ onMounted(async () => {
 }
 
 .edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.375rem 0.75rem;
   background-color: var(--color-primary);
   color: var(--color-text-inverse);
@@ -562,6 +584,9 @@ onMounted(async () => {
 }
 
 .delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.375rem 0.75rem;
   background-color: var(--color-error);
   color: var(--color-text-inverse);
@@ -742,6 +767,9 @@ onMounted(async () => {
 }
 
 .add-plugin-small-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.25rem 0.75rem;
   background-color: var(--color-success);
   color: var(--color-text-inverse);
@@ -757,6 +785,9 @@ onMounted(async () => {
 }
 
 .edit-plugin-small-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.25rem 0.5rem;
   background-color: var(--color-primary);
   color: var(--color-text-inverse);
@@ -772,6 +803,9 @@ onMounted(async () => {
 }
 
 .delete-plugin-small-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.25rem 0.5rem;
   background-color: #f87171;
   color: var(--color-text-inverse);
@@ -811,6 +845,17 @@ onMounted(async () => {
 }
 .disable-btn.disabled:hover {
   background-color: var(--color-warning-hover);
+}
+
+
+.toggle-btn:focus-visible,
+.edit-btn:focus-visible,
+.delete-btn:focus-visible,
+.add-plugin-small-btn:focus-visible,
+.edit-plugin-small-btn:focus-visible,
+.delete-plugin-small-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 @media (max-width: 768px) {

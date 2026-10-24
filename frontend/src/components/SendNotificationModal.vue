@@ -83,16 +83,13 @@
 
 
           <div v-if="form.tags.length > 0" class="selected-tags">
-            <span
-              v-for="(tag, index) in form.tags"
-              :key="index"
-              class="tag selected"
-              @click="removeTag(index)"
-              :title="$t('messages.removeTag')"
-            >
+            <button v-for="(tag, index) in form.tags" :key="index"
+              type="button" class="tag selected" @click="removeTag(index)"
+              :title="$t('messages.removeTagNamed', { tag })"
+              :aria-label="$t('messages.removeTagNamed', { tag })">
               {{ tag }}
-              <span class="tag-remove">×</span>
-            </span>
+              <span class="tag-remove"><X :size="12" aria-hidden="true" /></span>
+            </button>
           </div>
 
 
@@ -141,6 +138,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { X } from '@lucide/vue'
 import BaseModal from '@/components/BaseModal.vue'
 import { applicationApi, messageApi } from '@/services/api'
 import type { Application, Message } from '@/types'
@@ -165,6 +163,18 @@ const isPriorityManuallySet = ref(false)
 
 
 const isAdvancedOpen = ref(false)
+
+
+
+const form = ref({
+  appId: '' as number | '',
+  type: 'info',
+  priority: 1,
+  title: '',
+  content: '',
+  tags: [] as string[],
+  markdown: false
+})
 
 
 
@@ -225,18 +235,6 @@ const TAG_HISTORY_KEY = 'woe_message_tags_history'
 const MAX_TAG_HISTORY = 20
 const tagHistory = ref<string[]>([])
 const newTagInput = ref('')
-
-
-
-const form = ref({
-  appId: '' as number | '',
-  type: 'info',
-  priority: 1,
-  title: '',
-  content: '',
-  tags: [] as string[],
-  markdown: false
-})
 
 const errors = ref<{ appId?: string; title?: string; content?: string }>({})
 
@@ -535,8 +533,21 @@ onMounted(() => {
   border: 1px solid var(--color-primary);
 }
 
+
+button.tag.selected {
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: inherit;
+}
+
 .tag.selected:hover {
   background-color: var(--color-primary-light);
+}
+
+
+.tag.selected:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .tag.history {
@@ -550,7 +561,8 @@ onMounted(() => {
 }
 
 .tag-remove {
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
   margin-left: 0.25rem;
 }
 

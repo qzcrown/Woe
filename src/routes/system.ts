@@ -42,11 +42,17 @@ system.get("/health", async (c) => {
 
 
 system.get("/version", () => {
-  return ApiResponse.json({
-    version: buildInfo.version,
-    commit: buildInfo.commit,
-    buildDate: buildInfo.buildDate,
-  });
+
+
+  return ApiResponse.json(
+    {
+      version: buildInfo.version,
+      commit: buildInfo.commit,
+      buildDate: buildInfo.buildDate,
+    },
+    200,
+    { "Cache-Control": "no-store" }
+  );
 });
 
 

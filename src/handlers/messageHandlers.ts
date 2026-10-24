@@ -24,26 +24,45 @@ export interface MessageCreateTarget {
 }
 
 
+export type MessageCreateAuth =
+  | { kind: "app"; appId: number; userId: number }
+  | { kind: "client"; userId: number };
+
+
+
+
+
+
+export async function authenticateMessageCreate(
+  authenticator: Pick<Authenticator, "requireApp" | "requireClient">,
+  request: Request,
+  env: Env
+): Promise<MessageCreateAuth | Response> {
+  const appAuth = await authenticator.requireApp(request);
+  if (appAuth && appAuth.resourceId) {
+    return { kind: "app", appId: appAuth.resourceId, userId: appAuth.userId };
+  }
+
+  const clientAuth = await authenticator.requireClient(request, env);
+  if (!clientAuth) {
+    return ApiResponse.error("Unauthorized", 401, "Application token, client token or Basic auth required");
+  }
+  return { kind: "client", userId: clientAuth.userId };
+}
+
+
 
 
 
 
 
 export async function resolveMessageCreateTarget(
-  authenticator: Pick<Authenticator, "requireApp" | "requireClient">,
+  auth: MessageCreateAuth,
   drizzle: DrizzleDB,
-  request: Request,
-  env: Env,
   body: { appid?: number }
 ): Promise<MessageCreateTarget | Response> {
-  const appAuth = await authenticator.requireApp(request);
-  if (appAuth && appAuth.resourceId) {
-    return { appId: appAuth.resourceId, userId: appAuth.userId };
-  }
-
-  const clientAuth = await authenticator.requireClient(request, env);
-  if (!clientAuth) {
-    return ApiResponse.error("Unauthorized", 401, "Application token, client token or Basic auth required");
+  if (auth.kind === "app") {
+    return { appId: auth.appId, userId: auth.userId };
   }
 
   const appid = body.appid;
@@ -57,11 +76,11 @@ export async function resolveMessageCreateTarget(
     .where(eq(applications.id, appid))
     .get();
 
-  if (!appRow || appRow.userId !== clientAuth.userId) {
+  if (!appRow || appRow.userId !== auth.userId) {
     return ApiResponse.error("Bad Request", 400, "appid not found");
   }
 
-  return { appId: appRow.id, userId: clientAuth.userId };
+  return { appId: appRow.id, userId: auth.userId };
 }
 
 

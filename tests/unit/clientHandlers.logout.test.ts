@@ -18,17 +18,13 @@
 
 import { ClientHandlers } from '../../src/handlers/clientHandlers'
 import { Authenticator } from '../../src/middleware/auth'
-import {
-  generateEnhancedToken,
-  base64UrlEncode,
-  base64UrlDecode
-} from '../../src/utils/enhancedToken'
+import { generateEnhancedToken } from '../../src/utils/enhancedToken'
 import { createTestDb, asDrizzle, seedClient } from '../helpers/testDb'
 import type { TestDb } from '../helpers/testDb'
 import { makeD1Sqlite } from '../helpers/d1Sqlite'
 import { clients, pushOutbox } from '../../src/models'
 import { eq } from 'drizzle-orm'
-import { ed25519, ed25519ph } from '@noble/curves/ed25519.js'
+import { signFourFieldToken } from '../helpers/enhancedTokenTestSupport'
 
 
 const openDbs: TestDb[] = []
@@ -71,17 +67,6 @@ function seedOutbox(
   }
   const [row] = testDb.db.insert(pushOutbox).values(base).returning().all()
   return row
-}
-
-
-function signFourFieldToken(privateForm: string, iat: number): string {
-  const dot = privateForm.indexOf('.')
-  const prefix = privateForm.slice(0, dot)
-  const seed = base64UrlDecode(privateForm.slice(dot + 1))
-  if (!seed) throw new Error('test setup: privateForm seed 不可解码')
-  const publicKey = ed25519.getPublicKey(seed)
-  const sig = ed25519ph.sign(new TextEncoder().encode(`iat=${iat}`), seed)
-  return `${prefix}.${base64UrlEncode(publicKey)}.${iat}.${base64UrlEncode(sig)}`
 }
 
 afterEach(() => {

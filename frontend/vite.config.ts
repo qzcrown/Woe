@@ -38,6 +38,7 @@ export default defineConfig({
       '/auth': devApiTarget,
       '/current': devApiTarget,
       '/health': devApiTarget,
+      '/init': devApiTarget,
       '/version': devApiTarget,
       '/user': devApiTarget,
       '/application': devApiTarget,

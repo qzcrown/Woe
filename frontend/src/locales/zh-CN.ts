@@ -13,6 +13,7 @@ export default {
     loading: '加载中...',
     save: '保存',
     cancel: '取消',
+    close: '关闭',
     delete: '删除',
     edit: '编辑',
     add: '添加',
@@ -193,10 +194,12 @@ export default {
     codeCopy: '复制',
     copied: '已复制',
     codeFormat: '格式化',
+    codeCopyError: '复制代码失败',
     previewRender: '渲染视图',
     backToEdit: '返回编辑',
     filterTags: '过滤标签',
     removeTag: '点击移除',
+    removeTagNamed: '移除标签 {tag}',
     tagPlaceholder: '输入标签，按回车添加',
     tagHint: '仅支持字母、数字、连字符和下划线',
     tagHistory: '历史标签',
@@ -247,9 +250,13 @@ export default {
     deleteIconConfirm: '确定要删除应用图标吗？',
     deleteConfirmWithName: '确定要删除应用 "{name}" 的图标吗？',
 
-    regenerateToken: '重新生成 Token',
-    regenerated: 'Token 已重新生成，请立即复制保存。',
-    regenerateFailed: '重新生成 Token 失败'
+    regenerateToken: '刷新令牌',
+    regenerateAction: '刷新令牌',
+    regenerated: 'Token 已刷新，请立即复制保存。',
+    regenerateFailed: '刷新 Token 失败',
+
+    loadMore: '加载更多',
+    tokenStorageError: '新令牌已生成，但未能保存到浏览器；离开前请复制保存'
   },
   clients: {
     title: '客户端管理',
@@ -270,6 +277,7 @@ export default {
     noClientsFound: '暂无客户端',
     copyToken: '复制令牌',
     tokenCopied: '令牌已复制到剪贴板！',
+    copyTokenError: '复制令牌失败',
     lastUsed: '上次使用',
     deleteConfirm: '确定要删除此客户端吗？',
     deleteSuccess: '客户端删除成功！',
@@ -302,6 +310,7 @@ export default {
     createdTitle: '客户端创建成功',
     tokenLabel: '客户端令牌',
     tokenHint: '请立即复制并妥善保存此 Token，它只显示这一次，且不再随客户端列表返回。',
+    invalidTokenResponse: '客户端已创建，但响应中未返回可用令牌。请在客户端列表确认，避免重复创建。',
     done: '完成'
   },
   users: {
@@ -402,9 +411,10 @@ export default {
 
     createdTitle: '应用创建成功',
     tokenLabel: '应用令牌',
-    tokenHint: '请立即复制并妥善保存此 Token，它只显示这一次。',
+    tokenHint: '请立即复制并妥善保存此令牌。服务端仅在创建或刷新时返回完整的新令牌；本浏览器保存的副本将在校验后用于展示。',
     copyToken: '复制令牌',
     tokenCopied: '令牌已复制到剪贴板！',
+    invalidTokenResponse: '应用已创建，但未返回可用令牌，请在列表中对该应用刷新令牌。',
     done: '完成'
   },
   applicationDetail: {
@@ -416,17 +426,16 @@ export default {
     defaultPriority: '默认优先级：',
     lastUsed: '上次使用：',
     internal: '内部应用：',
-    editApplication: '编辑应用',
+    editApplication: '编辑',
     copyToken: '复制令牌',
-    deleteApplication: '删除应用',
+    deleteApplication: '删除',
     tokenTitle: '应用令牌',
     tokenDescription: '使用此令牌通过 REST API 向该应用发送消息。',
-    regenerateToken: '重新生成 Token',
-    regenerateWarning: '确定要重新生成 Token 吗？旧 Token 将立即失效，所有使用方都需要更新为新 Token。',
-    regenerated: 'Token 已重新生成，请立即复制保存。',
-    regenerateFailed: '重新生成 Token 失败',
+    regenerateToken: '刷新令牌',
+    regenerateWarning: '确定要刷新 Token 吗？旧 Token 将立即失效，所有使用方都需要更新为新 Token。',
+    regenerated: 'Token 已刷新，请立即复制保存。',
+    regenerateFailed: '刷新 Token 失败',
 
-    tokenUnknownHint: '出于安全考虑，令牌不再随详情接口返回，仅在创建或重新生成时显示一次；如需查看，请重新生成。',
     showToken: '显示令牌',
     hideToken: '隐藏令牌',
     recentMessages: '最近消息',
@@ -586,6 +595,7 @@ export default {
     cancel: '取消',
     wrongPassword: '密码错误，请重试',
     relogin: '会话信息缺失，请退出后重新登录',
+    sessionChanged: '检测到会话变化，本次提升已中断；若操作已提交，请重新登录后确认结果。',
     attemptsExhausted: '尝试次数过多，操作已取消',
     requestFailed: '身份验证失败，请重试'
   }

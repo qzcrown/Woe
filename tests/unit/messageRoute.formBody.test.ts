@@ -285,6 +285,8 @@ describe("POST /message form body (Woe 扩展)", () => {
 
   test("不支持的 Content-Type（text/plain）：body 不强行解析（form 默认路径），query 仍可绑定", async () => {
 
+    mockRequireApp.mockResolvedValue({ userId: 1, resourceId: 5, tokenType: "app", isAdmin: false });
+
     const response = await message.fetch(
       makeFormRequest({ message: "hi" }, { "content-type": "text/plain" }),
       mockEnv,

@@ -4,8 +4,9 @@
       <div class="page-header">
         <h1 class="page-title">{{ $t('common.plugins') }}</h1>
         <div class="page-actions">
-          <button @click="refreshPlugins" :disabled="loading" class="refresh-btn">
-            {{ loading ? $t('common.loading') : $t('common.refresh') }}
+          <button type="button" @click="refreshPlugins" :disabled="loading" class="refresh-btn">
+            <RefreshCw :size="14" aria-hidden="true" :class="{ spinning: loading }" />
+            <span>{{ loading ? $t('common.loading') : $t('common.refresh') }}</span>
           </button>
         </div>
       </div>
@@ -107,6 +108,7 @@ import Layout from '@/components/Layout.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import PluginIcon from '@/components/PluginIcon.vue'
+import { RefreshCw } from '@lucide/vue'
 import { pluginApi } from '@/services/api'
 import { showSuccess, showError } from '@/utils/errorHandler'
 import type { Plugin } from '@/types'
@@ -189,6 +191,9 @@ onMounted(() => {
 }
 
 .refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.5rem 1rem;
   background-color: var(--color-primary);
   color: var(--color-text-inverse);
@@ -205,6 +210,32 @@ onMounted(() => {
 .refresh-btn:disabled {
   background-color: var(--color-text-muted);
   cursor: not-allowed;
+}
+
+.refresh-btn .spinning {
+  animation: plugin-refresh-spin 1s linear infinite;
+}
+
+@keyframes plugin-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refresh-btn .spinning {
+    animation: none;
+  }
+}
+
+
+.refresh-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .error-message {

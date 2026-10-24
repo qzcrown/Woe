@@ -93,6 +93,16 @@ describe("updateApplicationSecurity 无操作动作（regenerateToken=false）",
 });
 
 describe("updateApplicationSecurity 轮换动作（regenerateToken=true，行为保持）", () => {
+  test("非法 id → 400，不轮换（handler 层 true×非法 ID，与无动作共享同一入口校验）", async () => {
+    const drizzle = createDrizzleMock({ id: 9 });
+    const handlers = new ApplicationHandlers(drizzle as any);
+    const res = await handlers.updateApplicationSecurity(7, "abc", true);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.errorDescription).toBe("Invalid application ID");
+    expect(drizzle.__state.updateCalls).toBe(0);
+  });
+
   test("属主应用 → 200 且返回新 token（privateForm 响应、publicForm 入库）", async () => {
     const drizzle = createDrizzleMock({ id: 9 });
     const handlers = new ApplicationHandlers(drizzle as any);

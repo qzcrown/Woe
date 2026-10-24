@@ -11,8 +11,9 @@
       >
         {{ $t('messages.sendNotification') }}
       </button>
-      <button @click="refreshMessages" :disabled="loading" class="refresh-btn">
-        {{ loading ? $t('common.loading') : $t('common.refresh') }}
+      <button type="button" class="refresh-btn" @click="refreshMessages" :disabled="loading">
+        <RefreshCw :size="14" aria-hidden="true" :class="{ spinning: loading }" />
+        <span>{{ loading ? $t('common.loading') : $t('common.refresh') }}</span>
       </button>
       <button
         v-if="selectedMessages.length > 0"
@@ -96,12 +97,9 @@
                 <span class="message-priority" :class="`priority-${getPriorityLevel(message.priority ?? 1)}`">
                   {{ getPriorityLabel(message.priority) }}
                 </span>
-                <button
-                  @click.stop="deleteMessage(message.id)"
-                  class="delete-btn"
-                  :title="$t('messages.deleteMessage')"
-                >
-                  ×
+                <button type="button" class="delete-btn" @click.stop="deleteMessage(message.id)"
+                  :title="$t('messages.deleteMessage')" :aria-label="$t('messages.deleteMessage')">
+                  <Trash2 :size="14" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -119,8 +117,9 @@
             :description="$t('messages.emptyDescription')"
           >
             <template #actions>
-              <button @click="refreshMessages" class="refresh-btn">
-                {{ $t('common.refresh') }}
+              <button type="button" class="refresh-btn" @click="refreshMessages" :disabled="loading">
+                <RefreshCw :size="14" aria-hidden="true" />
+                <span>{{ $t('common.refresh') }}</span>
               </button>
             </template>
           </EmptyState>
@@ -168,6 +167,7 @@ import { getPriorityLevel } from '@/utils/priority'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { RefreshCw, Trash2 } from '@lucide/vue'
 import Layout from '@/components/Layout.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
@@ -485,6 +485,9 @@ const dismissNotificationPrompt = () => {
 }
 
 .refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.5rem 1rem;
   background-color: var(--color-primary);
   color: var(--color-text-inverse);
@@ -501,6 +504,26 @@ const dismissNotificationPrompt = () => {
 .refresh-btn:disabled {
   background-color: var(--color-text-muted);
   cursor: not-allowed;
+}
+
+.refresh-btn .spinning {
+  animation: message-refresh-spin 1s linear infinite;
+}
+
+@keyframes message-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refresh-btn .spinning {
+    animation: none;
+  }
 }
 
 .error-message {
@@ -584,7 +607,6 @@ const dismissNotificationPrompt = () => {
   border: none;
   border-radius: 0.25rem;
   cursor: pointer;
-  font-size: 1rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -593,6 +615,17 @@ const dismissNotificationPrompt = () => {
 
 .delete-btn:hover {
   background: #dc2626;
+}
+
+
+.refresh-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.delete-btn:focus-visible {
+  outline: 2px solid var(--color-error);
+  outline-offset: 2px;
 }
 
 .message-content {

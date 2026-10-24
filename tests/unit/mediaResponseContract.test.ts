@@ -167,7 +167,7 @@ describe('应用响应媒体契约（applicationHandlers）', () => {
       DEFAULT_APP_IMAGE
     ])
 
-    expect(body.every(app => app.token === '')).toBe(true)
+    expect(body.every(app => !('token' in app))).toBe(true)
   })
 
   test('GET /application/:id 详情：旧/新/空 image 规范化', async () => {

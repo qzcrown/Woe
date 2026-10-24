@@ -63,6 +63,27 @@ describe('resolveMediaUrl URL 矩阵(显式基址)', () => {
     )
   })
 
+  it('协议相对 URL(//host/...)原样通过,不拼接基址', () => {
+    expect(resolveMediaUrl('//cdn.example.com/image/app-images/a', 'https://h.test')).toBe(
+      '//cdn.example.com/image/app-images/a'
+    )
+    expect(resolveMediaUrl('//cdn.example.com/static/x.png', 'https://h.test/api/v1')).toBe(
+      '//cdn.example.com/static/x.png'
+    )
+  })
+
+  it('旧 static 形态(默认图)经基址解析:legacy 前缀消重与部署路径保留', () => {
+    expect(resolveMediaUrl('/api/v1/static/defaultapp.png', 'https://h.test/api/v1')).toBe(
+      'https://h.test/api/v1/static/defaultapp.png'
+    )
+    expect(resolveMediaUrl('/static/defaultapp.png', 'https://h.test/proxy')).toBe(
+      'https://h.test/proxy/static/defaultapp.png'
+    )
+    expect(resolveMediaUrl('/api/v1/static/defaultapp.png', 'https://h.test/proxy')).toBe(
+      'https://h.test/proxy/api/v1/static/defaultapp.png'
+    )
+  })
+
   it('已完整包含当前部署路径的根相对地址不重复追加', () => {
     expect(resolveMediaUrl('/proxy/api/v1/image/app-images/a', 'https://h.test/proxy')).toBe(
       'https://h.test/proxy/api/v1/image/app-images/a'

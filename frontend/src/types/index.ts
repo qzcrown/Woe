@@ -146,7 +146,12 @@ export interface ChangePasswordRequest {
 
 export interface Application {
   readonly id: number
-  readonly token: string
+
+
+
+
+
+  readonly token?: string
   name: string
   sortKey: string
   description: string

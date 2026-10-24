@@ -1,7 +1,14 @@
 <template>
   <Transition name="confirm-dialog">
-    <div v-if="visible" class="confirm-dialog-overlay" @click="handleOverlayClick">
-      <div class="confirm-dialog-container" :class="[`type-${type}`]" @click.stop>
+    <BaseModal
+      v-if="visible"
+      class="confirm-dialog-shell"
+      max-width="420px"
+      :z-index="2000"
+      hide-close
+      @close="handleOverlayClick"
+    >
+      <template #title>
         <div class="confirm-dialog-header">
           <div class="icon-wrapper">
             <svg v-if="type === 'warning'" class="icon warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -22,11 +29,13 @@
           </div>
           <h3 class="confirm-dialog-title">{{ title }}</h3>
         </div>
+      </template>
 
-        <div class="confirm-dialog-body">
-          <p class="confirm-dialog-message">{{ message }}</p>
-        </div>
+      <div class="confirm-dialog-body">
+        <p class="confirm-dialog-message">{{ message }}</p>
+      </div>
 
+      <template #footer>
         <div class="confirm-dialog-footer">
           <button
             @click="handleCancel"
@@ -45,13 +54,14 @@
             <span v-else>{{ confirmText }}</span>
           </button>
         </div>
-      </div>
-    </div>
+      </template>
+    </BaseModal>
   </Transition>
 </template>
 
 <script setup lang="ts">
 import { watch } from 'vue'
+import BaseModal from './BaseModal.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 
 interface Props {
@@ -89,6 +99,7 @@ const handleCancel = () => {
   emit('cancel')
 }
 
+
 const handleOverlayClick = () => {
   if (props.closeOnOverlayClick && !props.loading) {
     handleCancel()
@@ -105,39 +116,19 @@ watch(() => props.visible, (newVal) => {
 </script>
 
 <style scoped>
-.confirm-dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-  padding: 1rem;
-}
 
-.confirm-dialog-container {
-  width: 100%;
-  max-width: 420px;
-  background: var(--color-bg-primary);
-  border-radius: 0.75rem;
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-  animation: dialogSlideIn 0.2s ease-out;
-}
-
-@keyframes dialogSlideIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+.confirm-dialog-shell {
+  --modal-backdrop-padding: 1rem;
+  --modal-header-padding: 0;
+  --modal-header-border: none;
+  --modal-body-padding: 0;
+  --modal-footer-padding: 0;
+  --modal-footer-border: none;
+  --modal-footer-bg: transparent;
 }
 
 .confirm-dialog-header {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -186,6 +177,7 @@ watch(() => props.visible, (newVal) => {
 }
 
 .confirm-dialog-footer {
+  flex: 1;
   display: flex;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
@@ -249,6 +241,7 @@ watch(() => props.visible, (newVal) => {
   background-color: var(--color-error-hover);
 }
 
+
 .confirm-dialog-enter-active,
 .confirm-dialog-leave-active {
   transition: opacity 0.2s ease;
@@ -259,23 +252,18 @@ watch(() => props.visible, (newVal) => {
   opacity: 0;
 }
 
-.confirm-dialog-enter-active .confirm-dialog-container,
-.confirm-dialog-leave-active .confirm-dialog-container {
+.confirm-dialog-enter-active :deep(.modal-container),
+.confirm-dialog-leave-active :deep(.modal-container) {
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
-.confirm-dialog-enter-from .confirm-dialog-container,
-.confirm-dialog-leave-to .confirm-dialog-container {
+.confirm-dialog-enter-from :deep(.modal-container),
+.confirm-dialog-leave-to :deep(.modal-container) {
   transform: scale(0.95);
   opacity: 0;
 }
 
 @media (max-width: 640px) {
-  .confirm-dialog-container {
-    max-width: 100%;
-    margin: 1rem;
-  }
-
   .confirm-dialog-footer {
     flex-direction: column;
   }

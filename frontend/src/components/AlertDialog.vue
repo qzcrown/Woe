@@ -1,7 +1,14 @@
 <template>
   <Transition name="alert-dialog">
-    <div v-if="visible" class="alert-dialog-overlay" @click="handleOverlayClick">
-      <div class="alert-dialog-container" :class="[`type-${type}`]" @click.stop>
+    <BaseModal
+      v-if="visible"
+      class="alert-dialog-shell"
+      max-width="400px"
+      :z-index="2000"
+      hide-close
+      @close="handleOverlayClick"
+    >
+      <template #title>
         <div class="alert-dialog-header">
           <div class="icon-wrapper">
 
@@ -30,11 +37,13 @@
           </div>
           <h3 class="alert-dialog-title">{{ title || defaultTitle }}</h3>
         </div>
+      </template>
 
-        <div class="alert-dialog-body">
-          <p class="alert-dialog-message">{{ message }}</p>
-        </div>
+      <div class="alert-dialog-body">
+        <p class="alert-dialog-message">{{ message }}</p>
+      </div>
 
+      <template #footer>
         <div class="alert-dialog-footer">
           <button
             @click="handleConfirm"
@@ -44,14 +53,15 @@
             {{ confirmText }}
           </button>
         </div>
-      </div>
-    </div>
+      </template>
+    </BaseModal>
   </Transition>
 </template>
 
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BaseModal from './BaseModal.vue'
 
 
 
@@ -141,39 +151,19 @@ watch(() => props.visible, (newVal) => {
 </script>
 
 <style scoped>
-.alert-dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-  padding: 1rem;
-}
 
-.alert-dialog-container {
-  width: 100%;
-  max-width: 400px;
-  background: var(--color-bg-primary);
-  border-radius: 0.75rem;
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-  animation: dialogSlideIn 0.2s ease-out;
-}
-
-@keyframes dialogSlideIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+.alert-dialog-shell {
+  --modal-backdrop-padding: 1rem;
+  --modal-header-padding: 0;
+  --modal-header-border: none;
+  --modal-body-padding: 0;
+  --modal-footer-padding: 0;
+  --modal-footer-border: none;
+  --modal-footer-bg: transparent;
 }
 
 .alert-dialog-header {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -226,6 +216,7 @@ watch(() => props.visible, (newVal) => {
 }
 
 .alert-dialog-footer {
+  flex: 1;
   display: flex;
   justify-content: center;
   padding: 1rem 1.5rem;
@@ -292,24 +283,19 @@ watch(() => props.visible, (newVal) => {
   opacity: 0;
 }
 
-.alert-dialog-enter-active .alert-dialog-container,
-.alert-dialog-leave-active .alert-dialog-container {
+.alert-dialog-enter-active :deep(.modal-container),
+.alert-dialog-leave-active :deep(.modal-container) {
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
-.alert-dialog-enter-from .alert-dialog-container,
-.alert-dialog-leave-to .alert-dialog-container {
+.alert-dialog-enter-from :deep(.modal-container),
+.alert-dialog-leave-to :deep(.modal-container) {
   transform: scale(0.95);
   opacity: 0;
 }
 
 
 @media (max-width: 640px) {
-  .alert-dialog-container {
-    max-width: 100%;
-    margin: 1rem;
-  }
-
   .btn {
     width: 100%;
   }

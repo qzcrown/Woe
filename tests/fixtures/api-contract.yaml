@@ -35,8 +35,13 @@ info:
     Behavior follows the Gotify server v3.1.1 behavior contract on the unchanged
     REST API 2.1.0 routes: `paging.next` is a relative path; terminal and empty
     pages return `paging.since: 0` (the last-page cursor is only set when
-    another page exists); application/client tokens are visible only once
-    (create/rotate responses; read responses return `token: ""`);
+    another page exists); newly issued `gtfy…` application/client private-form
+    tokens are returned only once (create/rotate responses). Legacy application
+    plaintext credentials remain readable through the owner-scoped Woe detail
+    endpoint. Application list reads omit the `token`
+    key entirely and the Woe extension `GET /application/{id}` returns the
+    stored token value verbatim with `Cache-Control: private, no-store`;
+    client read responses keep `token: ""`;
     User/Application/Client/Plugin models serialize `createdAt`;
     clients support `expiresAfterInactivitySeconds`/`expiresAt` inactivity expiry;
     newly issued app/client tokens use the `gtfy…` EdDSA format (legacy `A…`/`C…`
@@ -56,7 +61,7 @@ info:
     priority precision and strict text binding) are documented in this description;
     implemented routes are not a claim of full behavioral compatibility.
 
-  version: 1.3.5
+  version: 1.3.6
   contact:
     name: Woe API Support
   license:
@@ -544,7 +549,10 @@ paths:
       tags:
         - user
       summary: Get user applications
-      description: Get all applications owned by a user (admin only). Read responses return an empty `token` string (show-once semantics; see Application schema).
+      description: >-
+        Get all applications owned by a user (admin only). Each list item
+        omits the `token` key entirely (same read contract as `GET
+        /application`; see Application schema).
       operationId: getUserApplications
       parameters:
         - $ref: '#/components/parameters/UserId'
@@ -725,10 +733,14 @@ paths:
         - application
       summary: Get all applications
       description: >-
-        List all applications for the authenticated user. Read responses always
-        return `token: ""` (Gotify v3 show-once semantics); the real token is
-        only visible in the `POST /application` create response and the
-        `PUT /application/{id}/security` rotate response.
+        List all applications for the authenticated user. Each list item omits
+        the `token` key entirely (Gotify v3 `omitempty` semantics — the key is
+        absent, not an empty string), so list responses carry no credential
+        material. Newly issued `gtfy…` private-form tokens are returned only
+        in the `POST /application` create response and the
+        `PUT /application/{id}/security` rotate response. Legacy application
+        plaintext credentials remain readable through the owner-scoped
+        `GET /application/{id}` detail endpoint.
       operationId: getAllApplications
       security:
         - ClientToken: []
@@ -794,7 +806,16 @@ paths:
       tags:
         - application
       summary: Get application by ID
-      description: Get application details. Read response returns an empty `token` string (show-once semantics).
+      description: >-
+        Get application details (Woe extension; upstream Gotify has no
+        single-get endpoint). Strictly owner-scoped: the row is selected by
+        both id and the authenticated user id, with no admin bypass — unknown
+        or non-owned ids return 404 with no token material. The response
+        returns the stored token value verbatim: a `gtfy…` public-form lookup
+        value for enhanced-format applications (a public key, not a usable
+        credential; intended for local derivation-based validation) or the
+        legacy plaintext token for legacy rows. The success response is sent
+        with `Cache-Control: private, no-store` and must not be cached.
       operationId: getApplication
       security:
         - ClientToken: []
@@ -803,7 +824,14 @@ paths:
         - $ref: '#/components/parameters/ApplicationId'
       responses:
         '200':
-          description: Application details
+          description: Application details with the stored token value verbatim
+          headers:
+            Cache-Control:
+              description: >-
+                `private, no-store` — the detail response carries token
+                material (stored value) and must not be cached.
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -812,6 +840,14 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: >-
+            Application not found or not owned by the caller. The error
+            response contains no token material.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     put:
       tags:
@@ -881,10 +917,11 @@ paths:
         multipart `file` field: a raw `image/*` request body is also accepted.
         The 200 response is the Application read model whose `image` field
         carries the normalized relative path `image/<key>` (no leading slash,
-        relative to the service base URL). The stored database value keeps the
-        legacy format (`/api/v1/image/<key>`) and existing R2 keys are
-        unchanged; replacing an image does not delete the previous R2 object
-        (deletion only happens on the DELETE endpoint).
+        relative to the service base URL) and whose `token` keeps the stored
+        token value (per upstream v3 write semantics). The stored database
+        value keeps the legacy format (`/api/v1/image/<key>`) and existing R2
+        keys are unchanged; replacing an image does not delete the previous R2
+        object (deletion only happens on the DELETE endpoint).
       operationId: uploadApplicationImage
       security:
         - ClientToken: []
@@ -905,8 +942,8 @@ paths:
         '200':
           description: >-
             Image uploaded/replaced successfully; returns the updated
-            Application read model (`token: ""`, `image` as the normalized
-            relative path).
+            Application read model (`token` keeps the stored token value,
+            `image` as the normalized relative path).
           content:
             application/json:
               schema:
@@ -923,9 +960,10 @@ paths:
       description: >-
         Delete the application image. On success the R2 object is deleted, the
         database `image` is set to NULL, and the response is the updated
-        complete Application read model (Gotify semantics): `token` is `""`
-        and an application without an image reports
-        `image: "static/defaultapp.png"` (response-only; never stored).
+        complete Application read model (Gotify semantics): `token` still
+        returns `token: ""` (unchanged Woe read model for image deletion; the
+        field is not a validation source) and an application without an image
+        reports `image: "static/defaultapp.png"` (response-only; never stored).
         Deleting again when no image exists → 404 `No image to delete`.
       operationId: deleteApplicationImage
       security:
@@ -2188,7 +2226,6 @@ components:
       type: object
       required:
         - id
-        - token
         - name
         - sortKey
         - description
@@ -2200,11 +2237,26 @@ components:
         token:
           type: string
           description: >-
-            Always `""` in read responses (Gotify v3 show-once semantics).
-            The real token is returned exactly once by `POST /application`
-            and `PUT /application/{id}/security` as a `gtfy…` EdDSA
-            private-form token; `PUT /application/{id}` update responses keep
-            the stored (public-form) token value per upstream v3. Legacy `A…`
+            Endpoint-dependent (Gotify v3 show-once semantics with a Woe
+            detail extension). `GET /application` and
+            `GET /user/{id}/applications` omit the `token` key entirely
+            (matching upstream `json:"token,omitempty"`; the key is absent,
+            not an empty string). `GET /application/{id}` (Woe extension)
+            returns the stored token value verbatim — a `gtfy…` public-form
+            lookup value for enhanced-format applications (a public key, not
+            a usable credential, used for local derivation-based validation)
+            or the legacy plaintext token for legacy rows — with
+            `Cache-Control: private, no-store` on the success response and a
+            token-free 404 for unknown/non-owned ids. Newly issued `gtfy…`
+            EdDSA private-form tokens are returned exactly once by
+            `POST /application` and `PUT /application/{id}/security`; this
+            show-once restriction does not apply to legacy plaintext
+            credentials returned by the owner-scoped detail endpoint.
+            `PUT /application/{id}` and
+            `POST /application/{id}/image` write responses keep the stored
+            (public-form) token value per upstream v3; `DELETE
+            /application/{id}/image` still returns `""`. Consumers must not
+            assume the key is always present or always a string. Legacy `A…`
             tokens remain valid for authentication.
         name:
           type: string

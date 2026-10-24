@@ -249,3 +249,34 @@ describe('未就绪隔离验证', () => {
     }
   })
 })
+
+
+
+it('sanitized toolbar keeps copy SVG and escaped localized names', async () => {
+  await ensureHljsLoadedForTest()
+  const label = 'Copy " <&>'
+  try {
+    setToolbarLabels({ copy: label, format: 'Format' })
+    const result = renderMessage('```json\n{"a":1}\n```')
+    expect(result.mode).toBe('rich')
+    if (result.mode !== 'rich') throw new Error('expected rich code block')
+    const root = document.createElement('div')
+    root.innerHTML = result.html
+    const button = root.querySelector<HTMLButtonElement>('button.code-copy')!
+    expect(button).not.toBeNull()
+    expect(button.type).toBe('button')
+    expect(button.title).toBe(label)
+    expect(button.getAttribute('aria-label')).toBe(label)
+    const icon = button.querySelector('svg.md-icon-copy')!
+    expect(icon).not.toBeNull()
+    expect(icon.getAttribute('aria-hidden')).toBe('true')
+    expect(icon.getAttribute('viewBox')).toBe('0 0 24 24')
+    expect(icon.querySelector('path, rect')).not.toBeNull()
+    expect(button.textContent).toBe('')
+    expect(root.querySelector('button.code-format')?.textContent).toBe('Format')
+    expect(root.querySelector('code')?.textContent).toBe('{"a":1}\n')
+    expect(root.querySelector('script, img')).toBeNull()
+  } finally {
+    setToolbarLabels({ copy: 'Copy', format: 'Format' })
+  }
+})

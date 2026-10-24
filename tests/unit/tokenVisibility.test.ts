@@ -6,6 +6,13 @@
 
 
 
+
+
+
+
+
+
+
 jest.mock('file-type', () => ({
   fileTypeFromBuffer: jest.fn()
 }), { virtual: true })
@@ -13,6 +20,7 @@ jest.mock('file-type', () => ({
 import { ApplicationHandlers } from '../../src/handlers/applicationHandlers'
 import { ClientHandlers } from '../../src/handlers/clientHandlers'
 import { UserHandlers } from '../../src/handlers/userHandlers'
+import { derivePublicForm, makeTestPrivateForm } from '../helpers/enhancedTokenTestSupport'
 
 
 function createApplicationDrizzleMock(rows: Array<Record<string, unknown>>) {
@@ -137,9 +145,9 @@ function clientRow(overrides: Record<string, unknown> = {}) {
   }
 }
 
-describe('token visibility（后端半：读响应置空 token）', () => {
-  describe('GET 读响应 token 恒为空字符串（字段保留）', () => {
-    test('GET /application 列表 token 全部为空字符串', async () => {
+describe('token visibility（列表省略 token，详情回存储值）', () => {
+  describe('应用读响应（列表省略 token 键；详情回存储原值 + no-store）', () => {
+    test('GET /application 列表项完全省略 token 键（omitempty，而非空串）', async () => {
       const { drizzle } = createApplicationDrizzleMock([
         applicationRow(),
         applicationRow({ id: 2, token: 'A-app-token-2', name: 'App B' })
@@ -147,24 +155,67 @@ describe('token visibility（后端半：读响应置空 token）', () => {
       const handlers = new ApplicationHandlers(drizzle as any)
 
       const response = await handlers.getAllApplications(7)
-      const body = await response.json() as Array<Record<string, unknown>>
+      const listBody = await response.json() as Array<Record<string, unknown>>
 
       expect(response.status).toBe(200)
-      expect(body).toHaveLength(2)
-      expect(body.every(app => app.token === '')).toBe(true)
-
-      expect(body[0]).toHaveProperty('token', '')
+      expect(listBody).toHaveLength(2)
+      for (const item of listBody) expect(item).not.toHaveProperty('token')
     })
 
-    test('GET /application/:id token 为空字符串', async () => {
+    test('GET /application/:id 旧行返回存储明文凭据，成功响应禁缓存', async () => {
       const { drizzle } = createApplicationDrizzleMock([applicationRow()])
+      const handlers = new ApplicationHandlers(drizzle as any)
+
+      const detailResponse = await handlers.getApplication(7, '1')
+      const legacyDetail = await detailResponse.json() as Record<string, unknown>
+
+      expect(detailResponse.status).toBe(200)
+      expect(legacyDetail).toHaveProperty('token', 'A-app-token')
+      expect(detailResponse.headers.get('cache-control')).toBe('private, no-store')
+    })
+
+    test('GET /application/:id gtfy 行返回库中 publicForm（seed 经后端派生工具得到）', async () => {
+
+      const privateForm = makeTestPrivateForm()
+      const publicForm = await derivePublicForm(privateForm)
+      expect(publicForm).toMatch(/^gtfya\.[A-Za-z0-9\-_]{43}$/)
+      expect(publicForm).not.toBe(privateForm)
+
+      const { drizzle } = createApplicationDrizzleMock([applicationRow({ token: publicForm })])
+      const handlers = new ApplicationHandlers(drizzle as any)
+
+      const response = await handlers.getApplication(7, '1')
+      const enhancedDetail = await response.json() as Record<string, unknown>
+
+      expect(response.status).toBe(200)
+      expect(enhancedDetail).toHaveProperty('token', publicForm)
+      expect(response.headers.get('cache-control')).toBe('private, no-store')
+    })
+
+    test('GET /application/:id 未找到 → 404 且无 token', async () => {
+      const { drizzle } = createApplicationDrizzleMock([])
       const handlers = new ApplicationHandlers(drizzle as any)
 
       const response = await handlers.getApplication(7, '1')
       const body = await response.json() as Record<string, unknown>
 
+      expect(response.status).toBe(404)
+      expect(body).not.toHaveProperty('token')
+    })
+
+    test('GET /user/:id/applications 列表项完全省略 token 键', async () => {
+      const { drizzle } = createUserDrizzleMock([
+        applicationRow(),
+        applicationRow({ id: 2, token: 'A-app-token-2', name: 'App B' })
+      ])
+      const handlers = new UserHandlers(drizzle as any)
+
+      const response = await handlers.getUserApplications(7)
+      const body = await response.json() as Array<Record<string, unknown>>
+
       expect(response.status).toBe(200)
-      expect(body).toHaveProperty('token', '')
+      expect(body).toHaveLength(2)
+      for (const item of body) expect(item).not.toHaveProperty('token')
     })
 
     test('GET /client 列表 token 全部为空字符串', async () => {
@@ -192,22 +243,6 @@ describe('token visibility（后端半：读响应置空 token）', () => {
 
       expect(response.status).toBe(200)
       expect(body).toHaveProperty('token', '')
-    })
-
-    test('GET /user/:id/applications 中 token 全部为空字符串', async () => {
-      const { drizzle } = createUserDrizzleMock([
-        applicationRow(),
-        applicationRow({ id: 2, token: 'A-app-token-2', name: 'App B' })
-      ])
-      const handlers = new UserHandlers(drizzle as any)
-
-      const response = await handlers.getUserApplications(7)
-      const body = await response.json() as Array<Record<string, unknown>>
-
-      expect(response.status).toBe(200)
-      expect(body).toHaveLength(2)
-      expect(body.every(app => app.token === '')).toBe(true)
-      expect(body[0]).toHaveProperty('token', '')
     })
 
     test('GET /user/:id/clients 中 token 全部为空字符串', async () => {

@@ -34,6 +34,7 @@ jest.mock('../../src/middleware/auth.ts', () => ({
 
 import { message } from '../../src/routes/message';
 import { createMessageTestDb } from '../helpers/messageTestDb';
+import { makeExecutionCtxStub, type ExecutionCtxStub } from '../helpers/executionContext';
 import { makeD1Sqlite } from '../helpers/d1Sqlite';
 import { applications } from '../../src/models';
 import type { TestDb } from '../helpers/testDb';
@@ -46,7 +47,7 @@ interface Fixture {
   testDb: TestDb;
   env: Record<string, unknown>;
 
-  executionCtx: any;
+  executionCtx: ExecutionCtxStub;
 
   broadcastFetch: jest.Mock;
 
@@ -84,7 +85,7 @@ function makeFixture(): Fixture {
     MESSAGE_STREAM_HUB: streamNamespace,
     PUSH_QUEUE: { sendBatch },
   };
-  const executionCtx: any = { waitUntil: jest.fn() };
+  const executionCtx = makeExecutionCtxStub();
 
   const makeRequest = (body: string, contentType: string) =>
     new Request('http://localhost/', {

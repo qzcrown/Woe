@@ -30,6 +30,7 @@ jest.mock('../../src/services/writeGateService.ts', () => ({
 
 import { message } from '../../src/routes/message';
 import { createMessageTestDb } from '../helpers/messageTestDb';
+import { makeExecutionCtxStub, type ExecutionCtxStub } from '../helpers/executionContext';
 import { makeD1Sqlite } from '../helpers/d1Sqlite';
 import { applications, clients } from '../../src/models';
 import type { TestDb } from '../helpers/testDb';
@@ -40,7 +41,7 @@ const APP_DEFAULT_PRIORITY = 5;
 
 interface Fixture {
   env: Record<string, unknown>;
-  executionCtx: any;
+  executionCtx: ExecutionCtxStub;
   sendBatch: jest.Mock;
 
   post: (pathAndQuery: string, init?: { headers?: Record<string, string>; body?: BodyInit }) => Promise<Response>;
@@ -81,7 +82,7 @@ function makeFixture(): Fixture {
     MESSAGE_STREAM_HUB: streamNamespace,
     PUSH_QUEUE: { sendBatch },
   };
-  const executionCtx: any = { waitUntil: jest.fn() };
+  const executionCtx = makeExecutionCtxStub();
 
   return {
     env,

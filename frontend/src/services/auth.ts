@@ -43,11 +43,42 @@ export enum AuthStrategy {
 
 
 
+
+
+
+
+
 export interface TokenInfo {
   token: string
   type: 'client' | 'app'
-  expires?: Date
-  lastUsed?: Date
+  expires?: string | Date
+  lastUsed?: string | Date
+}
+
+
+
+
+
+const AUTH_STORAGE_PREFIX = 'woe_auth_'
+
+
+export const clientTokenStorageKey = (): string => `${AUTH_STORAGE_PREFIX}client_token`
+
+
+export const appTokenStorageKey = (appId: number): string => `${AUTH_STORAGE_PREFIX}app_${appId}_token`
+
+
+const APP_TOKEN_STORAGE_KEY_PATTERN = new RegExp(`^${AUTH_STORAGE_PREFIX}app_(\\d+)_token$`)
+
+
+
+
+
+export const parseAppTokenStorageKey = (key: string): number | null => {
+  const match = APP_TOKEN_STORAGE_KEY_PATTERN.exec(key)
+  if (!match) return null
+  const id = Number(match[1])
+  return Number.isSafeInteger(id) && id > 0 ? id : null
 }
 
 
@@ -130,7 +161,7 @@ const ENDPOINT_AUTH_MAP: Record<string, { strategy: AuthStrategy; tokenType?: 'c
 
 export class AuthenticationService {
   private static instance: AuthenticationService
-  private readonly STORAGE_PREFIX = 'woe_auth_'
+  private readonly STORAGE_PREFIX = AUTH_STORAGE_PREFIX
   private readonly ENCRYPTION_KEY = import.meta.env.VITE_AUTH_ENCRYPTION_KEY || 'woe-default-key'
   private applicationsCache: Application[] = []
 
@@ -138,6 +169,8 @@ export class AuthenticationService {
 
 
   private sessionRevision = 0
+
+  private sessionChangeListeners: Array<() => void> = []
 
 
 
@@ -278,8 +311,34 @@ export class AuthenticationService {
     return this.sessionRevision
   }
 
+
+
+
+
+
+
+
+  subscribeSessionChanges(listener: () => void): () => void {
+
+    const registration = () => listener()
+    this.sessionChangeListeners.push(registration)
+    return () => {
+      this.sessionChangeListeners = this.sessionChangeListeners.filter(l => l !== registration)
+    }
+  }
+
   private bumpSessionRevision(): void {
     this.sessionRevision += 1
+
+
+
+    for (const listener of [...this.sessionChangeListeners]) {
+      try {
+        listener()
+      } catch {
+
+      }
+    }
   }
 
 
@@ -292,10 +351,14 @@ export class AuthenticationService {
 
 
   getClientCredentialForRevocation(): string | null {
-    const encrypted = localStorage.getItem(`${this.STORAGE_PREFIX}client_token`)
-    if (!encrypted) return null
+    try {
+      const encrypted = localStorage.getItem(`${this.STORAGE_PREFIX}client_token`)
+      if (!encrypted) return null
+      return this.parseStoredToken(encrypted)?.token ?? null
+    } catch {
 
-    return this.parseStoredToken(encrypted)?.token ?? null
+      return null
+    }
   }
 
 
@@ -304,9 +367,13 @@ export class AuthenticationService {
   }
 
   getClientId(): number | null {
-    const raw = localStorage.getItem('woe_client_id')
-    const id = raw ? Number(raw) : NaN
-    return Number.isSafeInteger(id) && id > 0 ? id : null
+    try {
+      const raw = localStorage.getItem('woe_client_id')
+      const id = raw ? Number(raw) : NaN
+      return Number.isSafeInteger(id) && id > 0 ? id : null
+    } catch {
+      return null
+    }
   }
 
   clearClientId(): void {
@@ -437,24 +504,86 @@ export class AuthenticationService {
 
 
 
+
+
+
+
+
+
   getAppToken(appId: number): TokenInfo | null {
-    const encrypted = localStorage.getItem(`${this.STORAGE_PREFIX}app_${appId}_token`)
-    if (encrypted) {
-      try {
-        const decrypted = this.decrypt(encrypted)
-        const tokenInfo = JSON.parse(decrypted) as TokenInfo
+    try {
+      const encrypted = localStorage.getItem(`${this.STORAGE_PREFIX}app_${appId}_token`)
+      if (!encrypted) return null
 
-        if (tokenInfo.expires && new Date(tokenInfo.expires) < new Date()) {
-          localStorage.removeItem(`${this.STORAGE_PREFIX}app_${appId}_token`)
-        } else {
-          return tokenInfo
-        }
-      } catch {
-        localStorage.removeItem(`${this.STORAGE_PREFIX}app_${appId}_token`)
+
+      const tokenInfo = this.parseStoredToken(encrypted)
+      if (!tokenInfo || tokenInfo.type !== 'app') {
+        this.removeAppToken(appId)
+        return null
       }
-    }
 
-    return null
+
+
+
+
+      if (tokenInfo.expires !== undefined && tokenInfo.expires !== null) {
+        let expiresAt: Date
+        try {
+          expiresAt = new Date(tokenInfo.expires)
+        } catch {
+          this.removeAppToken(appId)
+          return null
+        }
+        if (Number.isNaN(expiresAt.getTime()) || expiresAt < new Date()) {
+          this.removeAppToken(appId)
+          return null
+        }
+      }
+
+      return tokenInfo
+    } catch {
+
+      return null
+    }
+  }
+
+
+
+
+
+
+
+
+  getAppTokenStorageSnapshot(appId: number): string | null {
+    try {
+      return localStorage.getItem(`${this.STORAGE_PREFIX}app_${appId}_token`)
+    } catch {
+      return null
+    }
+  }
+
+
+
+
+
+
+
+
+
+
+
+  removeAppTokenIfUnchanged(appId: number, expectedStoredValue: string | null): boolean {
+    if (expectedStoredValue === null) return false
+    const key = `${this.STORAGE_PREFIX}app_${appId}_token`
+    try {
+      const current = localStorage.getItem(key)
+      if (current === null || current !== expectedStoredValue) return false
+      localStorage.removeItem(key)
+      return true
+    } catch {
+
+      return false
+    }
   }
 
 
@@ -572,6 +701,8 @@ export class AuthenticationService {
 
 
 export const authService = AuthenticationService.getInstance()
+
+
 
 
 

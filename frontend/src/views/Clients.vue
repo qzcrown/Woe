@@ -33,8 +33,14 @@
             <p class="client-last-ping">{{ $t('clients.lastUsed') }}: {{ formatDate(client.lastUsed || '') || $t('common.never') }}</p>
           </div>
           <div class="client-actions">
-            <button @click="editClient(client)" class="edit-btn">{{ $t('common.edit') }}</button>
-            <button @click="deleteClient(client.id)" class="delete-btn">{{ $t('common.delete') }}</button>
+            <button type="button" class="edit-btn" @click="editClient(client)">
+              <Pencil :size="14" aria-hidden="true" />
+              <span>{{ $t('common.edit') }}</span>
+            </button>
+            <button type="button" class="delete-btn" @click="deleteClient(client.id)">
+              <Trash2 :size="14" aria-hidden="true" />
+              <span>{{ $t('common.delete') }}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -61,6 +67,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Pencil, Trash2 } from '@lucide/vue'
 import Layout from '@/components/Layout.vue'
 import { clientApi } from '@/services/api'
 import CreateClientModal from '@/components/CreateClientModal.vue'
@@ -125,6 +132,7 @@ const deleteClient = async (id: number) => {
       showSuccess(t('clients.deleteSuccess'))
       await reloadClients()
     } catch (err: any) {
+
       if (!isElevationCancelled(err)) {
         console.error('Failed to delete client:', err)
         showError(err, t('clients.deleteError'))
@@ -279,15 +287,21 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.edit-btn {
+.client-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.375rem 0.75rem;
-  background-color: var(--color-primary);
   color: var(--color-text-inverse);
   border: none;
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
   transition: var(--theme-transition);
+}
+
+.edit-btn {
+  background-color: var(--color-primary);
 }
 
 .edit-btn:hover {
@@ -295,18 +309,17 @@ onMounted(() => {
 }
 
 .delete-btn {
-  padding: 0.375rem 0.75rem;
   background-color: var(--color-error);
-  color: var(--color-text-inverse);
-  border: none;
-  border-radius: 0.375rem;
-  cursor: pointer;
-  font-size: 0.875rem;
-  transition: var(--theme-transition);
 }
 
 .delete-btn:hover {
   background-color: var(--color-error-hover);
+}
+
+
+.client-actions button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 @media (max-width: 768px) {

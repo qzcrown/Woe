@@ -32,7 +32,8 @@ jest.mock('../../src/handlers/userHandlers.ts', () => ({
 }))
 
 import { user } from '../../src/routes/user'
-import { Authenticator, hashPassword } from '../../src/middleware/auth'
+import { Authenticator } from '../../src/middleware/auth'
+import { hashPasswordOnce } from '../helpers/passwordHash'
 import { createTestDb, asDrizzle, seedClient } from '../helpers/testDb'
 import type { TestDb } from '../helpers/testDb'
 import { makeD1Sqlite } from '../helpers/d1Sqlite'
@@ -57,7 +58,7 @@ async function makeBearerFixture(): Promise<BearerFixture> {
   openDbs.push(testDb)
 
   testDb.sqlite.exec('ALTER TABLE users ADD COLUMN pass text')
-  const passHash = await hashPassword(BASIC_USER_PASSWORD)
+  const passHash = await hashPasswordOnce(BASIC_USER_PASSWORD)
   testDb.sqlite
     .prepare('INSERT INTO users (id, name, pass, admin, disabled) VALUES (?, ?, ?, ?, ?)')
     .run(BASIC_USER_ID, BASIC_USER, passHash, 0, 0)
