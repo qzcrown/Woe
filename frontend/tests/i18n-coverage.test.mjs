@@ -10,6 +10,18 @@ const backendSrcRoot = path.resolve('src')
 
 const importModule = async (filePath) => import(pathToFileURL(filePath).href)
 
+const stripHtmlComments = (input) => {
+  let current = input
+  let previous
+
+  do {
+    previous = current
+    current = current.replace(/<!--.*?-->/g, '')
+  } while (current !== previous)
+
+  return current
+}
+
 const flattenLocaleKeys = (value, prefix = '') => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return prefix ? [prefix] : []
@@ -141,7 +153,7 @@ test('vue templates and toast calls contain no hardcoded UI strings', async () =
 
     lines.forEach((line, idx) => {
       const inTemplate = templateStart !== -1 && idx > templateStart && idx < templateEnd
-      const bare = line.replace(/<!--.*?-->/g, '').replace(/&[a-zA-Z]+;/g, '')
+      const bare = stripHtmlComments(line).replace(/&[a-zA-Z]+;/g, '')
 
       if (inTemplate) {
         const textHit = bare.match(textNodePattern)
