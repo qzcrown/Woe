@@ -152,6 +152,57 @@ const extractFrontendClientTokenStatuses = async () => {
   return extractQuotedLiterals(match[1])
 }
 
+const stripHtmlCommentsPreservingLines = (input) => {
+  const findCommentEnd = (from) => {
+    const standardEnd = input.indexOf('-->', from)
+    const permissiveEnd = input.indexOf('--!>', from)
+    const candidates = [
+      standardEnd === -1 ? null : [standardEnd, standardEnd + 3],
+      permissiveEnd === -1 ? null : [permissiveEnd, permissiveEnd + 4]
+    ].filter(Boolean)
+    if (candidates.length === 0) return -1
+    candidates.sort(([left], [right]) => left - right)
+    return candidates[0][1]
+  }
+
+  let cursor = 0
+  let output = ''
+  while (cursor < input.length) {
+    const start = input.indexOf('<!--', cursor)
+    if (start === -1) {
+      output += input.slice(cursor)
+      break
+    }
+
+    output += input.slice(cursor, start)
+    const end = findCommentEnd(start + 4)
+    if (end === -1) {
+      output += input.slice(start).replace(/[^\r\n]/g, ' ')
+      break
+    }
+
+    output += input.slice(start, end).replace(/[^\r\n]/g, ' ')
+    cursor = end
+  }
+  return output
+}
+
+test('HTML comment stripping spans lines while preserving source line numbers', () => {
+  const source = '<template>\n<!-- first line\nsecond line -->\n<div>Visible</div>\n</template>'
+  const stripped = stripHtmlCommentsPreservingLines(source)
+  const lines = stripped.split('\n')
+
+  assert.equal(lines.length, source.split('\n').length)
+  assert.equal(lines[1].trim(), '')
+  assert.equal(lines[2].trim(), '')
+  assert.equal(lines[3], '<div>Visible</div>')
+})
+
+test('HTML comment stripping removes adjacent comments and permissive endings', () => {
+  const source = '<!--one--><!--two--!><span>Visible</span>'
+  assert.equal(stripHtmlCommentsPreservingLines(source), `${' '.repeat(21)}<span>Visible</span>`)
+})
+
 test('frontend literal translation keys exist in both locales', async () => {
   const packageDirs = await discoverPackageDirs()
   const [usedKeys, available] = await Promise.all([
@@ -313,13 +364,13 @@ const scanForHardcodedUiStrings = async (files, sourceRoot) => {
   for (const filePath of vueFiles) {
     const content = await fs.readFile(filePath, 'utf8')
     const rel = path.relative(sourceRoot, filePath)
-    const lines = content.split('\n')
+    const lines = stripHtmlCommentsPreservingLines(content).split('\n')
     const templateStart = lines.findIndex((l) => l.trim() === '<template>')
     const templateEnd = lines.map((l) => l.trim()).lastIndexOf('</template>')
 
     lines.forEach((line, idx) => {
       const inTemplate = templateStart !== -1 && idx > templateStart && idx < templateEnd
-      const bare = line.replace(/<!--.*?-->/g, '').replace(/&[a-zA-Z]+;/g, '')
+      const bare = line.replace(/&[a-zA-Z]+;/g, '')
 
       if (inTemplate) {
         const textHit = bare.match(textNodePattern)
