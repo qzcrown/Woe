@@ -19,13 +19,13 @@ import {
   createWebhookerPlugin,
   createWebhookerStaticDefinition,
   createWebhookerTaskDefinition
-} from '../../src/plugins/builtin/webhooker/definition'
+} from '../../../../../../src/plugins/builtin/webhooker/definition'
 import type {
   ApplicationAccess,
   MessageAccess,
   PluginHostContext,
   PluginTaskDefinition
-} from '../../src/plugins/jobs/types'
+} from '../../../../../../src/plugins/jobs/types'
 
 
 type HostMessage = NonNullable<Awaited<ReturnType<MessageAccess['getMessage']>>>
@@ -104,7 +104,7 @@ type PrepareResult = Awaited<ReturnType<NonNullable<PluginTaskDefinition['prepar
 async function runPrepare(
   config: unknown,
   host?: PluginHostContext,
-  definition: PluginTaskDefinition = createWebhookerStaticDefinition()
+  definition: Pick<PluginTaskDefinition, 'prepareJob'> = createWebhookerStaticDefinition()
 ): Promise<PrepareResult> {
   if (!definition.prepareJob) throw new Error('definition must implement prepareJob')
   return definition.prepareJob(prepareCtx(config, host ?? createHost().host))
@@ -126,19 +126,19 @@ function expectPayload(result: PrepareResult): Record<string, unknown> {
 
 
 
-describe('createWebhookerStaticDefinition：元数据与占位', () => {
-  test('元数据与 pluginTasks 目录声明一致；outbound 默认严格 + 固定放行 query', () => {
+describe('createWebhookerStaticDefinition：行为与占位', () => {
+  test('静态工厂只返回行为；outbound 默认严格 + 固定放行 query', () => {
     const definition = createWebhookerStaticDefinition()
-    expect(definition.modulePath).toBe('builtin/webhooker')
-    expect(definition.supportedSubjectTypes).toEqual(['message'])
-    expect(definition.secretFields).toEqual(['authToken'])
-    expect(definition.manualTrigger).toBe(false)
+    expect(definition).not.toHaveProperty('modulePath')
+    expect(definition).not.toHaveProperty('supportedSubjectTypes')
+    expect(definition).not.toHaveProperty('secretFields')
+    expect(definition).not.toHaveProperty('manualTrigger')
+    expect(definition).not.toHaveProperty('quotaNamespace')
     expect(definition.outbound).toEqual({ allowQuery: true })
-    expect(definition.quotaNamespace).toBeUndefined()
     expect(typeof definition.prepareJob).toBe('function')
   })
 
-  test('createTask 占位 fail-loud：抛错而非伪装成 config 失败（参照 example task）', async () => {
+  test('createTask 占位 fail-loud：抛错而非伪装成 config 失败', async () => {
     const { host } = createHost()
     await expect(
       createWebhookerStaticDefinition().createTask({

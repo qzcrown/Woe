@@ -16,10 +16,14 @@
               <line x1="12" y1="9" x2="12" y2="13"></line>
               <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none"></circle>
             </svg>
-            <svg v-else-if="type === 'danger'" class="icon danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg v-else-if="type === 'danger' || type === 'error'" class="icon danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"></circle>
               <line x1="15" y1="9" x2="9" y2="15"></line>
               <line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+            <svg v-else-if="type === 'success'" class="icon success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="9 12 12 15 16 10"></polyline>
             </svg>
             <svg v-else class="icon info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"></circle>
@@ -27,7 +31,7 @@
               <line x1="12" y1="8" x2="12.01" y2="8"></line>
             </svg>
           </div>
-          <h3 class="confirm-dialog-title">{{ title }}</h3>
+          <h3 class="confirm-dialog-title">{{ title || defaultTitle }}</h3>
         </div>
       </template>
 
@@ -36,22 +40,23 @@
       </div>
 
       <template #footer>
-        <div class="confirm-dialog-footer">
+        <div class="confirm-dialog-footer" :class="{ 'is-alert': isAlert }">
           <button
+            v-if="!isAlert"
             @click="handleCancel"
             class="btn btn-secondary"
             :disabled="loading"
           >
-            {{ cancelText }}
+            {{ displayCancelText }}
           </button>
           <button
             @click="handleConfirm"
             class="btn btn-primary"
-            :class="[`btn-${type}`]"
+            :class="confirmTypeClass"
             :disabled="loading"
           >
             <LoadingSpinner v-if="loading" size="small" variant="dots" />
-            <span v-else>{{ confirmText }}</span>
+            <span v-else>{{ displayConfirmText }}</span>
           </button>
         </div>
       </template>
@@ -60,17 +65,23 @@
 </template>
 
 <script setup lang="ts">
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import BaseModal from './BaseModal.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 
+
+
+
+
 interface Props {
   visible: boolean
+  mode?: 'confirm' | 'alert'
   title?: string
   message: string
   confirmText?: string
   cancelText?: string
-  type?: 'info' | 'warning' | 'danger'
+  type?: 'info' | 'warning' | 'danger' | 'success' | 'error'
   loading?: boolean
   closeOnOverlayClick?: boolean
 }
@@ -81,15 +92,53 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  mode: 'confirm',
   title: '',
-  confirmText: '确认',
-  cancelText: '取消',
+  confirmText: '',
+  cancelText: '',
   type: 'info',
   loading: false,
   closeOnOverlayClick: true
 })
 
 const emit = defineEmits<Emits>()
+const { t } = useI18n()
+
+const isAlert = computed(() => props.mode === 'alert')
+
+
+const defaultTitle = computed(() => {
+  if (!isAlert.value) return ''
+  switch (props.type) {
+    case 'success':
+      return t('common.alert.typeSuccess')
+    case 'error':
+      return t('common.alert.typeError')
+    case 'warning':
+      return t('common.alert.typeWarning')
+    default:
+      return t('common.alert.typeInfo')
+  }
+})
+
+const displayCancelText = computed(() =>
+  props.cancelText || t('common.confirmDialog.cancelButton')
+)
+
+const displayConfirmText = computed(() => {
+  if (props.confirmText) return props.confirmText
+  return isAlert.value
+    ? t('common.alert.confirmButton')
+    : t('common.confirmDialog.confirmButton')
+})
+
+
+const confirmTypeClass = computed(() => {
+  if (props.type === 'warning') return 'btn-warning'
+  if (props.type === 'danger' || props.type === 'error') return 'btn-danger'
+  if (props.type === 'success') return 'btn-success'
+  return ''
+})
 
 const handleConfirm = () => {
   emit('confirm')
@@ -101,7 +150,10 @@ const handleCancel = () => {
 
 
 const handleOverlayClick = () => {
-  if (props.closeOnOverlayClick && !props.loading) {
+  if (!props.closeOnOverlayClick) return
+  if (isAlert.value) {
+    handleConfirm()
+  } else if (!props.loading) {
     handleCancel()
   }
 }
@@ -152,6 +204,10 @@ watch(() => props.visible, (newVal) => {
   color: var(--color-error);
 }
 
+.icon.success {
+  color: var(--color-success);
+}
+
 .icon.info {
   color: var(--color-info);
 }
@@ -185,6 +241,17 @@ watch(() => props.visible, (newVal) => {
   background-color: var(--color-bg-tertiary);
 }
 
+
+.confirm-dialog-footer.is-alert {
+  justify-content: center;
+}
+
+.confirm-dialog-footer.is-alert .btn {
+  flex: 0 0 auto;
+  padding: 0.625rem 2rem;
+  min-width: 100px;
+}
+
 .btn {
   flex: 1;
   padding: 0.625rem 1rem;
@@ -193,7 +260,7 @@ watch(() => props.visible, (newVal) => {
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -239,6 +306,14 @@ watch(() => props.visible, (newVal) => {
 
 .btn-primary.btn-danger:hover:not(:disabled) {
   background-color: var(--color-error-hover);
+}
+
+.btn-primary.btn-success {
+  background-color: var(--color-success);
+}
+
+.btn-primary.btn-success:hover:not(:disabled) {
+  background-color: var(--color-success-hover);
 }
 
 

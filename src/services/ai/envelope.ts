@@ -18,8 +18,52 @@ const invalidEnvelope = (httpStatus?: number): AiProviderResult =>
     ? { ok: false, failureKind: 'invalid-envelope' }
     : { ok: false, failureKind: 'invalid-envelope', httpStatus }
 
+
+const reasoningStarved = (httpStatus?: number): AiProviderResult =>
+  httpStatus === undefined
+    ? { ok: false, failureKind: 'reasoning-starved' }
+    : { ok: false, failureKind: 'reasoning-starved', httpStatus }
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+}
+
+
+
+
+
+
+
+
+function hasReasoningStarvedEvidence(
+  first: Record<string, unknown>,
+  payload: Record<string, unknown>
+): boolean {
+  const message = first.message
+  if (!isRecord(message)) return false
+
+  const reasoningContent = message.reasoning_content
+  if (typeof reasoningContent === 'string' && reasoningContent.length > 0) return true
+
+  const reasoning = message.reasoning
+  if (typeof reasoning === 'string' && reasoning.length > 0) return true
+
+  const usage = payload.usage
+  if (!isRecord(usage)) return false
+
+  const completionTokens = usage.completion_tokens
+  if (!isNonNegativeInteger(completionTokens)) return false
+
+  const details = usage.completion_tokens_details
+  if (!isRecord(details)) return false
+
+  const reasoningTokens = details.reasoning_tokens
+  return isNonNegativeInteger(reasoningTokens) && reasoningTokens > 0 && reasoningTokens <= completionTokens
 }
 
 function tokenCount(value: unknown): number | undefined {
@@ -63,6 +107,8 @@ function successResult(text: string, httpStatus?: number, usage?: AiUsage): AiPr
 
 
 
+
+
 export function parseOpenAiChatCompletion(payload: unknown, httpStatus?: number): AiProviderResult {
   if (!isRecord(payload)) return invalidEnvelope(httpStatus)
 
@@ -76,7 +122,18 @@ export function parseOpenAiChatCompletion(payload: unknown, httpStatus?: number)
   if (!isRecord(message)) return invalidEnvelope(httpStatus)
 
   const content = message.content
-  if (typeof content !== 'string' || content.length === 0) return invalidEnvelope(httpStatus)
+  if (typeof content !== 'string' || content.length === 0) {
+
+
+    if (
+      (content === undefined || content === null || content === '') &&
+      first.finish_reason === 'length' &&
+      hasReasoningStarvedEvidence(first, payload)
+    ) {
+      return reasoningStarved(httpStatus)
+    }
+    return invalidEnvelope(httpStatus)
+  }
 
   return successResult(content, httpStatus, normalizeUsage(payload.usage))
 }
@@ -85,8 +142,18 @@ export function parseOpenAiChatCompletion(payload: unknown, httpStatus?: number)
 
 
 
+
+
+
+
+
+
 export function parseWorkersAiText(payload: unknown, httpStatus?: number): AiProviderResult {
   if (!isRecord(payload)) return invalidEnvelope(httpStatus)
+
+  if (Object.hasOwn(payload, 'choices')) {
+    return parseOpenAiChatCompletion(payload, httpStatus)
+  }
 
   const text = payload.response
   if (typeof text !== 'string' || text.length === 0) return invalidEnvelope(httpStatus)

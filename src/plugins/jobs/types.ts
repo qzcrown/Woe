@@ -36,6 +36,7 @@ export type PluginJobErrorCode =
   | 'provider-timeout'
   | 'provider-network'
   | 'provider-invalid-envelope'
+  | 'provider-reasoning-budget'
   | 'invalid-output'
   | 'outbound-blocked'
   | 'downstream-rejected'
@@ -66,8 +67,18 @@ export type PluginTaskFailure = {
   httpStatus?: number
 }
 
+
+
+
+
+
+
+
+
+
 export type PluginTaskResult =
-  | { ok: true; result?: unknown; quotaConsumed?: boolean }
+  | { ok: true; result?: unknown; quotaConsumed?: boolean; skipped?: never }
+  | { ok: true; skipped: { code: PluginSkipCode }; result?: unknown; quotaConsumed?: boolean }
   | { ok: false; failure: PluginTaskFailure; quotaConsumed?: boolean }
 
 export type PluginEventOutcome =
@@ -155,6 +166,16 @@ export interface PluginTaskDefinition {
     host: PluginHostContext
   }): Promise<PluginTask>
 }
+
+export type PluginTaskBehavior = Pick<
+  PluginTaskDefinition,
+  'validateConfig' | 'prepareJob' | 'createTask'
+> & Partial<Pick<PluginTaskDefinition, 'outbound'>>
+
+export type StaticTaskFactory = () => PluginTaskBehavior
+export type RuntimeTaskFactory = (
+  env: import('../../types/index.ts').Env
+) => PluginTaskBehavior
 
 
 

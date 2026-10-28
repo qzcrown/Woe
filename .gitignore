@@ -106,6 +106,9 @@ build/
 dev-dist/
 workers-site/
 wrangler.toml
+# Wrangler 运维资源映射与生成部署配置（由 npm run wrangler -- ... 重建；仅 template.toml/resources.json 模板入仓）
+wrangler.resources.json
+wrangler.generated.json
 
 # Cloudflare Pages
 .functions/
@@ -182,6 +185,9 @@ pnpm-lock.yaml
 
 # 文档和参考
 docs/ui/
+# 历史归档与验收证据（冻结快照，仅本机保留不入仓；docs:check 与 residue 扫描已豁免）
+/docs/archive/
+/docs/reports/evidence/
 
 # sql 迁移文件
 # src/migrations/sql
@@ -201,3 +207,17 @@ references/gotify/
 .workbuddy/
 # wrangler 本地密钥文件
 .dev.vars
+dev-shim.ts
+
+# 本地插件导航（由 scripts/plugins/pluginMap.mjs 生成）
+/.woe/
+
+# 本地生成物（由脚本重建：scripts/plugins/generate.mjs / write-build-info.js）
+/.plugin-generation.json
+/src/generated/plugins/
+/src/generated/buildInfo.ts
+/frontend/src/generated/plugins/
+/frontend/public/generated-plugins/
+
+# 生成器临时/备份目录（不参与源码、测试、归档）
+/.plugin-tmp/

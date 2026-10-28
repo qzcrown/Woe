@@ -12,24 +12,27 @@ npm --prefix frontend ci
 npx wrangler login
 npx wrangler d1 create woe-db
 npx wrangler r2 bucket create woe-storage
+npx wrangler kv namespace create woe-quota
 npx wrangler queues create woe-plugin-jobs
 ```
 
-Record the D1 UUID. The first deployment creates MessageStreamHubObject through the DO [[migrations]] declaration; it needs no separate creation command. Images uses a Worker binding, without a separate Images storage resource.
+Record the D1 UUID and the KV namespace ID. The first deployment creates MessageStreamHubObject through the DO [[migrations]] declaration; it needs no separate creation command. Images uses a Worker binding, without a separate Images storage resource.
 
-## 2. Configure wrangler.toml
+## 2. Configure wrangler.resources.json
 
 ```bash
-cp example.wrangler.toml wrangler.toml
+cp resources.json wrangler.resources.json
 ```
 
-Replace database_id with the real UUID and ensure bucket_name matches the actual R2 bucket. Set workers_dev=true or configure a custom domain through [[routes]]. The template disables workers.dev, so leaving both access methods unconfigured will not expose the service.
+Replace each environment's databaseId (the D1 UUID), bucketName (the R2 bucket) and the kv quota-kv id (the KV namespace ID) with real values; adjust workerName and the target environment (production/staging) as needed. The staging block presets WEBHOOKER_ALLOW_HTTP=true only as an example — do not enable it in production.
 
-The template retains DB/R2/IMAGES/ASSETS/MESSAGE_STREAM_HUB and Webhooker's PLUGIN_JOB_QUEUE producer/consumer. Queue settings are max_batch_size=1, max_retries=2 and max_concurrency=1: the first attempt plus two retries, for three attempts in total. Concurrency limits do not guarantee ordering or exactly-once delivery.
+Deployment input is not a hand-written `wrangler.toml`: `npm run wrangler -- <command>` (also used indirectly by `npm run deploy`/`npm run dev`) generates `wrangler.generated.json` and `.wrangler/deploy/config.json` for the target environment before invoking Wrangler; explicit `--config` is reserved for the wrapper. `template.toml` is a deterministic read-only illustration rendered from the current package set (`node scripts/plugins/renderWranglerExample.mjs --check` guards drift); deployment does not consume it.
 
-The default queue name is woe-plugin-jobs. If renamed, update the producer, consumer and [vars].PLUGIN_JOB_QUEUE_NAME together. Unknown queue names reach a branch that acknowledges and discards the batch. Default functionality needs no Workers AI (AI binding), QUOTA_KV or push queue (PUSH_QUEUE). Add resources and matching queue-name variables only when implementing extensions that require them.
+Bindings follow the actual plugin package set: this build retains DB/R2/QUOTA_KV/IMAGES/ASSETS/MESSAGE_STREAM_HUB and Webhooker's PLUGIN_JOB_QUEUE producer/consumer. QUOTA_KV is a required core binding (quota override storage), not an optional extension. Queue settings are max_batch_size=1, max_retries=2 and max_concurrency=1: the first attempt plus two retries, for three attempts in total. Concurrency limits do not guarantee ordering or exactly-once delivery. Default functionality needs no Workers AI (AI binding) or push queue (PUSH_QUEUE). If you later add a plugin package under src/plugins/builtin/ declaring those capabilities, add the matching resource mappings and queue-name variables per its manifest.
 
-REGISTRATION defaults to false. Retain the SQL text-module rules, DO migration history and cron. The daily cron removes terminal Plugin Jobs created over 30 days ago and marks pending jobs created over 24 hours ago as dead; it does not resend jobs to the queue. Generic push core and historical tables remain.
+The default queue name is woe-plugin-jobs (the plugin-jobs mapping in resources.json). If renamed, update the mapping and the derived [vars].PLUGIN_JOB_QUEUE_NAME together. Unknown queue names reach a branch that acknowledges and discards the batch.
+
+REGISTRATION defaults to false. Retain the DO migration history and cron. The daily cron removes terminal Plugin Jobs created over 30 days ago and marks pending jobs created over 24 hours ago as dead; it does not resend jobs to the queue. Generic push core and historical tables remain.
 
 ## 3. Set secrets
 
@@ -50,11 +53,11 @@ For local development, put independent test values for DEFAULT_ADMIN_PASSWORD/PL
 
 ```bash
 npm run build:frontend
-npx wrangler deploy --dry-run
+npm run wrangler -- deploy --dry-run
 npm run deploy
 ```
 
-build:frontend includes type checking and writes root public/. The deploy script refreshes buildInfo before deployment but does not rebuild the frontend. Direct npx wrangler deploy does not refresh buildInfo. A dry-run checks packaging and configuration parsing; it does not create resources or validate the real deployment.
+build:frontend includes type checking and writes root public/. The deploy script regenerates the wrangler configuration through the wrapper before deployment but does not rebuild the frontend. A bare npx wrangler deploy without generated configuration is rejected by the fingerprint check. A dry-run checks packaging and configuration parsing; it does not create resources or validate the real deployment.
 
 On the first HTTP request, the Worker automatically applies the fixed 0000_initial_schema baseline and subsequent incremental migrations, including 0013_plugin_jobs. An empty database needs neither db:push nor a manually imported baseline. Migration failure returns 503 DATABASE_MIGRATION_FAILED; details are in Worker logs. Do not delete _migrations or reimport the baseline to repair an inconsistent database.
 
@@ -111,7 +114,7 @@ npm run build:frontend
 npm run deploy
 ```
 
-Merge the new template section by section before deployment, retaining the existing DB/R2 IDs, DO migrations, routes, Secrets and cron. Upgrading from an older displayer-only package requires creating the Plugin Jobs Queue and setting the plugin master key, then creating/granting/configuring/enabling Webhooker; instances are not created automatically. An older synchronous Webhooker becomes asynchronous best-effort delivery. URL/empty-YAML/field-type validation is stricter, so test downstream compatibility.
+Before upgrading, diff wrangler.resources.json against the new resources.json template and keep your real IDs/names, Secrets and custom environment mappings; template.toml changes are informational only (it is a generated illustration, not deployment input). Upgrading from an older displayer-only package requires creating the Plugin Jobs Queue and setting the plugin master key, then creating/granting/configuring/enabling Webhooker; instances are not created automatically. An older synchronous Webhooker becomes asynchronous best-effort delivery. URL/empty-YAML/field-type validation is stricter, so test downstream compatibility.
 
 Configuration rows for excluded plugins are not deleted automatically, and those instances cannot load. Existing push_outbox rows and queued messages are not automatically emptied: valid pending rows can remain suspended without a provider. Retain them for restoration or perform reviewed manual termination; do not assume automatic cleanup. Migration history and device compatibility fields remain, without automatically deleting historical data.
 

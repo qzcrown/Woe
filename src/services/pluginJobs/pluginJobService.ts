@@ -38,7 +38,7 @@ import type {
   PluginJobsFactory,
   PluginTaskDefinition
 } from '../../plugins/jobs/types.ts'
-import { createPluginTaskRegistry } from '../../plugins/jobs/registry.ts'
+import { createPluginTaskRegistry, getQuotaNamespaces } from '../../plugins/jobs/registry.ts'
 import { QuotaService, type QuotaCheckResult, type QuotaConsumeResult } from '../quota/quotaService.ts'
 import { createPluginHost } from './pluginHost.ts'
 import { jobErrorMessage, writeJobLog } from './pluginJobLog.ts'
@@ -212,7 +212,8 @@ export class PluginJobService {
   constructor(private readonly deps: PluginJobServiceDeps) {
     this.drizzle = deps.drizzle
     this.env = deps.env
-    this.quota = deps.quota ?? new QuotaService(deps.drizzle, deps.env)
+    this.quota =
+      deps.quota ?? new QuotaService(deps.drizzle, deps.env, getQuotaNamespaces())
     this.now = deps.now ?? (() => new Date())
 
 
@@ -255,8 +256,10 @@ export class PluginJobService {
     }
 
 
+
+
     const definition = this.resolveDefinition(plugin.modulePath)
-    if (!definition) return this.skipped('config')
+    if (!definition) return this.skipped('plugin-unavailable')
     if (!definition.supportedSubjectTypes.includes(subjectType)) {
       return this.skipped('plugin-unavailable')
     }

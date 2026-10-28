@@ -20,15 +20,18 @@
       </div>
 
       <div v-else-if="plugins.length === 0" class="empty-plugins">
+
+
         <EmptyState
           type="default"
           :title="$t('plugins.noPlugins')"
-          :description="$t('plugins.pluginsDescription')"
+          :description="isAdmin ? $t('plugins.emptyHintAdmin') : $t('plugins.emptyHintUser')"
         >
-          <template #actions>
-            <a href="https://gotify.net/docs/plugin" target="_blank" class="learn-more-btn">
-              {{ $t('plugins.learnMore') }}
-            </a>
+
+          <template v-if="isAdmin" #actions>
+            <router-link to="/users" class="empty-action-btn">
+              {{ $t('plugins.addInUsers') }}
+            </router-link>
           </template>
         </EmptyState>
       </div>
@@ -62,10 +65,7 @@
                 <span class="meta-label">{{ $t('plugins.website') }}:</span>
                 <a :href="plugin.website" target="_blank" class="meta-link">
                   {{ plugin.website }}
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M18 13v6a2 2 0 0 0 1-2 2H5a2 2 0 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                    <polyline points="15 3 21 12 9 3 21"></polyline>
-                  </svg>
+                  <ExternalLink :size="12" aria-hidden="true" />
                 </a>
               </div>
             </div>
@@ -102,36 +102,45 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Layout from '@/components/Layout.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import PluginIcon from '@/components/PluginIcon.vue'
-import { RefreshCw } from '@lucide/vue'
+import { RefreshCw, ExternalLink } from '@lucide/vue'
 import { pluginApi } from '@/services/api'
-import { showSuccess, showError } from '@/utils/errorHandler'
+import { createPluginUiHost } from '@/plugins/host'
+import { useAuthStore } from '@/stores/auth'
 import type { Plugin } from '@/types'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.user?.admin === true)
 
 const plugins = ref<Plugin[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const togglingPlugin = ref<number | null>(null)
 
+const host = createPluginUiHost({ ownerId: authStore.user?.id ?? 0 })
+host.signal.addEventListener('abort', () => { plugins.value = []; error.value = null; loading.value = false; togglingPlugin.value = null }, { once: true })
+onUnmounted(() => host.dispose())
 const loadPlugins = async () => {
+  if (!host.isCurrent()) return
   loading.value = true
   error.value = null
 
   try {
-    const response = await pluginApi.getPlugins()
+    const response = await pluginApi.getPlugins(host.requestOptions)
+    if (!host.isCurrent()) return
     plugins.value = response.data || []
   } catch (err: any) {
+    if (!host.isCurrent()) return
     error.value = err.errorDescription || t('plugins.loadError')
-    showError(err, t('plugins.loadError'))
+    host.notify.error(err, t('plugins.loadError'))
   } finally {
-    loading.value = false
+    if (host.isCurrent()) loading.value = false
   }
 }
 
@@ -140,23 +149,24 @@ const refreshPlugins = () => {
 }
 
 const togglePlugin = async (plugin: Plugin) => {
+  if (!host.isCurrent()) return
   togglingPlugin.value = plugin.id
 
   try {
     if (plugin.enabled) {
-      await pluginApi.disable(plugin.id)
-      showSuccess(t('plugins.disabledSuccess', { name: plugin.name }))
+      await pluginApi.disable(plugin.id, host.requestOptions)
+      host.notify.success(t('plugins.disabledSuccess', { name: plugin.name }))
     } else {
-      await pluginApi.enable(plugin.id)
-      showSuccess(t('plugins.enabledSuccess', { name: plugin.name }))
+      await pluginApi.enable(plugin.id, host.requestOptions)
+      host.notify.success(t('plugins.enabledSuccess', { name: plugin.name }))
     }
 
 
     await loadPlugins()
   } catch (err: any) {
-    showError(err, t('plugins.toggleError', { action: plugin.enabled ? t('plugins.disable') : t('plugins.enable') }))
+    host.notify.error(err, t('plugins.toggleError', { action: plugin.enabled ? t('plugins.disable') : t('plugins.enable') }))
   } finally {
-    togglingPlugin.value = null
+    if (host.isCurrent()) togglingPlugin.value = null
   }
 }
 
@@ -200,7 +210,7 @@ onMounted(() => {
   border: none;
   border-radius: 0.375rem;
   cursor: pointer;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .refresh-btn:hover:not(:disabled) {
@@ -239,12 +249,12 @@ onMounted(() => {
 }
 
 .error-message {
-  background-color: #fef2f2;
+  background-color: var(--color-error-bg);
   color: var(--color-error-hover);
   padding: 1rem;
   border-radius: 0.375rem;
   margin-bottom: 1rem;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--color-priority-emergency-bg);
 }
 
 .loading-container {
@@ -257,7 +267,7 @@ onMounted(() => {
   padding: 2rem;
 }
 
-.learn-more-btn {
+.empty-action-btn {
   display: inline-block;
   padding: 0.5rem 1rem;
   background-color: var(--color-primary);
@@ -265,10 +275,10 @@ onMounted(() => {
   text-decoration: none;
   border-radius: 0.375rem;
   font-weight: 500;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
-.learn-more-btn:hover {
+.empty-action-btn:hover {
   background-color: var(--color-primary-hover);
   color: var(--color-text-inverse) !important;
 }
@@ -421,7 +431,7 @@ onMounted(() => {
   font-size: 0.875rem;
   font-weight: 500;
   text-align: center;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .details-btn:hover {
@@ -439,7 +449,7 @@ onMounted(() => {
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 500;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
   min-width: 100px;
 }
 

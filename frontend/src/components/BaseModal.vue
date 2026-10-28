@@ -162,7 +162,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: var(--modal-header-padding, 1rem 1.25rem);
-  border-bottom: var(--modal-header-border, 1px solid var(--color-border-primary));
+  border-bottom: var(--modal-header-border, 1px dashed var(--color-border-secondary));
+
   flex-shrink: 0;
 }
 

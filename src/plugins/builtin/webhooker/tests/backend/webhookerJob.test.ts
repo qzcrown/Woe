@@ -23,25 +23,24 @@
 
 
 
-
 jest.mock('file-type', () => ({ fileTypeFromBuffer: jest.fn() }), { virtual: true })
 
 
-jest.mock('../../src/services/migrationRunner.ts', () => ({
+jest.mock('../../../../../../src/services/migrationRunner.ts', () => ({
   MigrationRunner: class {
     async runPendingMigrations(): Promise<void> {}
   }
 }))
 
 import { eq } from 'drizzle-orm'
-import worker from '../../src/index.ts'
-import app from '../../src/app.ts'
-import type { Env } from '../../src/types/index.ts'
-import { MessageHandlers } from '../../src/handlers/messageHandlers.ts'
-import { createPluginJobRuntime } from '../../src/services/pluginJobs/pluginJobService.ts'
-import { PluginSecretService } from '../../src/services/pluginSecretService.ts'
-import { WEBHOOKER_MODULE_PATH } from '../../src/plugins/builtin/webhooker/config.ts'
-import { PUBLIC_TASK_MODULE as FIXTURE_MODULE_PATH } from '../helpers/publicTaskFixture'
+import worker from '../../../../../../src/index.ts'
+import app from '../../../../../../src/app.ts'
+import type { Env } from '../../../../../../src/types/index.ts'
+import { MessageHandlers } from '../../../../../../src/handlers/messageHandlers.ts'
+import { createPluginJobRuntime } from '../../../../../../src/services/pluginJobs/pluginJobService.ts'
+import { PluginSecretService } from '../../../../../../src/services/pluginSecretService.ts'
+import { WEBHOOKER_MODULE_PATH } from '../../../../../../src/plugins/builtin/webhooker/config.ts'
+
 import {
   applications,
   clients,
@@ -49,11 +48,11 @@ import {
   pluginConfigs,
   pluginJobs,
   pluginLogs
-} from '../../src/models/index.ts'
-import { createPluginJobsTestDb } from '../helpers/pluginJobsTestDb.ts'
-import { asDrizzle } from '../helpers/testDb.ts'
-import { makeD1Sqlite } from '../helpers/d1Sqlite.ts'
-import { makeExecutionCtxStub, type ExecutionCtxStub } from '../helpers/executionContext.ts'
+} from '../../../../../../src/models/index.ts'
+import { createPluginJobsTestDb } from '../../../../../../tests/helpers/pluginJobsTestDb.ts'
+import { asDrizzle } from '../../../../../../tests/helpers/testDb.ts'
+import { makeD1Sqlite } from '../../../../../../tests/helpers/d1Sqlite.ts'
+import { makeExecutionCtxStub, type ExecutionCtxStub } from '../../../../../../tests/helpers/executionContext.ts'
 
 type TestDb = ReturnType<typeof createPluginJobsTestDb>
 
@@ -61,8 +60,6 @@ const USER_ID = 7
 const APP_ID = 1
 const CLIENT_TOKEN = 'Cwebhooker-client-token'
 const MASTER_KEY = Buffer.from(Uint8Array.from({ length: 32 }, (_, i) => i + 1)).toString('base64')
-
-const FIXTURE_CONFIG = 'valid: true\n'
 
 
 const WEBHOOKER_CONFIG = `
@@ -79,8 +76,6 @@ interface SetupOptions {
   webhookerYaml?: string
 
   envVars?: Record<string, string>
-
-  withFixture?: boolean
 }
 
 interface Fixture {
@@ -90,7 +85,6 @@ interface Fixture {
   queueSend: jest.Mock
   sent: Array<{ jobId: number }>
   webhooker: { id: number }
-  fixtureTask: { id: number } | null
   handlers: MessageHandlers
   runtime: ReturnType<typeof createPluginJobRuntime>
 }
@@ -139,23 +133,6 @@ function setup(options: SetupOptions = {}): Fixture {
     .returning()
     .all()
 
-  let fixtureTask: { id: number } | null = null
-  if (options.withFixture) {
-    const [row] = testDb.db
-      .insert(pluginConfigs)
-      .values({
-        userId: USER_ID,
-        name: 'Fixture Task',
-        token: 'fixture-task-plugin-token',
-        modulePath: FIXTURE_MODULE_PATH,
-        configYaml: FIXTURE_CONFIG,
-        enabled: 1
-      })
-      .returning()
-      .all()
-    fixtureTask = { id: row.id }
-  }
-
   const sent: Array<{ jobId: number }> = []
   const queueSend = jest.fn(async (body: { jobId: number }) => {
     sent.push(body)
@@ -173,7 +150,7 @@ function setup(options: SetupOptions = {}): Fixture {
   const runtime = createPluginJobRuntime({ drizzle: asDrizzle(testDb), env })
   const handlers = new MessageHandlers(asDrizzle(testDb), undefined, runtime)
 
-  return { testDb, env, executionCtx, queueSend, sent, webhooker, fixtureTask, handlers, runtime }
+  return { testDb, env, executionCtx, queueSend, sent, webhooker, handlers, runtime }
 }
 
 
@@ -446,16 +423,11 @@ filter:
     expect(jobRow(fx.testDb, job.id).status).toBe('success')
   })
 
-  test('手动拒绝：POST /message/:id/jobs 对 webhooker 409 不建 job；fixture-task 手动 202 不变', async () => {
-    const fx = setup({ withFixture: true })
-
-
+  test('手动拒绝：POST /message/:id/jobs 对 webhooker 409 不建第二个 job', async () => {
+    const fx = setup()
     const created = await createMessage(fx.handlers)
-    const eventJobs = jobRows(fx.testDb)
-    expect(eventJobs).toHaveLength(2)
-    const fixtureTaskEventJob = eventJobs.find((row) => row.pluginId === fx.fixtureTask!.id)!
+    expect(jobRows(fx.testDb)).toHaveLength(1)
     const queueCallsAfterEvent = fx.queueSend.mock.calls.length
-
 
     const webhookerPost = await request(fx, `/message/${created.id}/jobs`, {
       method: 'POST',
@@ -466,41 +438,16 @@ filter:
     expect(await webhookerPost.json()).toMatchObject({
       errorDescription: 'Plugin is not available for message jobs'
     })
-    expect(jobRows(fx.testDb)).toHaveLength(2)
+    expect(jobRows(fx.testDb)).toHaveLength(1)
     expect(fx.queueSend.mock.calls.length).toBe(queueCallsAfterEvent)
     expect(
       logEvents(fx.testDb).filter((row) => row.event === 'plugin_job.enqueue_rejected')
     ).toEqual([{ event: 'plugin_job.enqueue_rejected', error: 'plugin-unavailable' }])
 
-
-
-    const fixtureTaskEvent = await deliver(fx, fixtureTaskEventJob.id)
-    expect(fixtureTaskEvent.ack).toHaveBeenCalledTimes(1)
-    expect(jobRow(fx.testDb, fixtureTaskEventJob.id).status).toBe('success')
-
-    const fixtureTaskPost = await request(fx, `/message/${created.id}/jobs`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pluginId: fx.fixtureTask!.id })
-    })
-    expect(fixtureTaskPost.status).toBe(202)
-    const manualBody = (await fixtureTaskPost.json()) as { jobId: number; status: string }
-    expect(manualBody.status).toBe('pending')
-    expect(manualBody.jobId).not.toBe(fixtureTaskEventJob.id)
-
-    const rows = jobRows(fx.testDb)
-    expect(rows).toHaveLength(3)
-    expect(rows.filter((row) => row.pluginId === fx.webhooker.id && row.status === 'pending'))
-      .toHaveLength(1)
-    expect(rows.filter((row) => row.pluginId === fx.fixtureTask!.id && row.status === 'pending'))
-      .toHaveLength(1)
-
-
     const history = await request(fx, `/message/${created.id}/jobs`)
     const body = (await history.json()) as { jobs: Array<{ pluginId: number; status: string }> }
-    expect(body.jobs).toHaveLength(3)
-    expect(body.jobs.filter((row) => row.pluginId === fx.webhooker.id)).toHaveLength(1)
-    expect(body.jobs.filter((row) => row.pluginId === fx.fixtureTask!.id)).toHaveLength(2)
+    expect(body.jobs).toHaveLength(1)
+    expect(body.jobs[0]).toMatchObject({ pluginId: fx.webhooker.id, status: 'pending' })
   })
 })
 

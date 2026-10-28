@@ -4,12 +4,18 @@
 
 
 import { ExecutablePlugin } from './types.ts'
+import { serverModules } from '../generated/plugins/server.ts'
 
 
 type Factory = (params: { id: number; name: string }) => ExecutablePlugin
 
 
 const factories: Record<string, Factory> = {}
+for (const [modulePath, module] of Object.entries(
+  serverModules as Readonly<Record<string, { event?: Factory }>>
+)) {
+  if (module.event) factories[modulePath] = module.event
+}
 
 
 export function register(modulePath: string, factory: Factory) {

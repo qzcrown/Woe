@@ -20,52 +20,34 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Check, Copy } from '@lucide/vue'
 import BaseModal from './BaseModal.vue'
 import { authService } from '@/services/auth'
-import { showError } from '@/utils/errorHandler'
+import { useCopyFeedback } from '@/composables/useCopyFeedback'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ (event: 'close'): void }>()
 const { t } = useI18n()
-const copied = ref(false)
 const sessionRevision = authService.getSessionRevision()
 const clientToken = authService.getClientCredentialForRevocation()
 let disposed = false
-let copySequence = 0
-let copyTimer: ReturnType<typeof setTimeout> | null = null
-const clearCopyFeedback = (): void => {
-  copySequence += 1
-  if (copyTimer !== null) clearTimeout(copyTimer)
-  copyTimer = null
-  copied.value = false
+const { copied, copyText, clearCopyFeedback } = useCopyFeedback({
+  isCurrent: (text) => !disposed && text === props.token &&
+    sessionRevision === authService.getSessionRevision() &&
+    clientToken === authService.getClientCredentialForRevocation(),
+  errorTitle: () => t('applications.copyTokenError'),
+  clearOnError: true
+})
+
+const copyToken = (): void => {
+  void copyText(props.token)
 }
 const close = (): void => {
   disposed = true
   clearCopyFeedback()
   emit('close')
-}
-const copyToken = async (): Promise<void> => {
-  const token = props.token
-  const sequence = ++copySequence
-  const isCurrent = (): boolean => !disposed && sequence === copySequence && token === props.token &&
-    sessionRevision === authService.getSessionRevision() && clientToken === authService.getClientCredentialForRevocation()
-  if (!isCurrent()) return
-  try {
-    await navigator.clipboard.writeText(token)
-  } catch (err) {
-    if (isCurrent()) showError(err as Error, t('applications.copyTokenError'))
-    return
-  }
-  if (!isCurrent()) return
-  if (copyTimer !== null) clearTimeout(copyTimer)
-  copied.value = true
-  copyTimer = setTimeout(() => {
-    copyTimer = null
-    copied.value = false
-  }, 1500)
 }
 onBeforeUnmount(() => {
   disposed = true

@@ -231,7 +231,7 @@ onUnmounted(() => {
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 500;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
   white-space: nowrap;
 }
 

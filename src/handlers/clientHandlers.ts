@@ -16,10 +16,19 @@ import {
   refreshClientActivityById,
   EXPIRES_AFTER_INACTIVITY_MAX_SECONDS
 } from "../services/clientExpiry.ts";
+import { DECLARED_PUSH_PLATFORMS } from "../services/push/platforms.ts";
+
 
 type ClientPlatform = string;
 type PushState = "active" | "inactive";
 type ClientTokenStatus = PushState | "invalid" | "expired";
+
+
+
+
+
+
+const CORE_CLIENT_PLATFORMS: readonly string[] = ["web", "unknown"];
 
 
 const ELEVATION_MAX_DURATION_SECONDS = 86_400 * 365;
@@ -46,7 +55,12 @@ export type LogoutClientResult =
 
 
 export class ClientHandlers {
-  constructor(private drizzle: DrizzleDB, private rawDb?: D1Database) {}
+  constructor(
+    private drizzle: DrizzleDB,
+    private rawDb?: D1Database,
+
+    private readonly declaredPushPlatforms: readonly string[] = DECLARED_PUSH_PLATFORMS
+  ) {}
 
 
 
@@ -104,9 +118,36 @@ export class ClientHandlers {
     };
   }
 
-  private normalizePlatform(platform?: string): ClientPlatform {
-    const normalized = platform?.trim();
-    return normalized || "unknown";
+
+
+
+
+
+
+
+
+
+  private validateNewPlatform(platform: unknown): { ok: true; platform: ClientPlatform } | { ok: false; response: Response } {
+    if (platform === undefined) {
+      return { ok: true, platform: "unknown" };
+    }
+    if (typeof platform !== "string" || platform.trim() === "") {
+      return { ok: false, response: ApiResponse.error("Bad Request", 400, "platform must be a non-empty string") };
+    }
+    const candidate = platform.trim();
+    const declared =
+      this.declaredPushPlatforms.includes(candidate) || CORE_CLIENT_PLATFORMS.includes(candidate);
+    if (!declared) {
+      return {
+        ok: false,
+        response: ApiResponse.error(
+          "Conflict",
+          409,
+          "platform is not declared by any push plugin (plugin-unavailable)"
+        )
+      };
+    }
+    return { ok: true, platform: candidate };
   }
 
   private normalizePushState(state?: string): PushState | null {
@@ -150,7 +191,11 @@ export class ClientHandlers {
         return ApiResponse.error("Bad Request", 400, "Client name is required");
       }
 
-      const platform = this.normalizePlatform(body.platform);
+      const platformResult = this.validateNewPlatform(body.platform);
+      if (!platformResult.ok) {
+        return platformResult.response;
+      }
+      const platform = platformResult.platform;
       const deviceUid = body.deviceUid?.trim();
       const deviceToken = body.deviceToken?.trim();
       const appVersion = body.appVersion?.trim();

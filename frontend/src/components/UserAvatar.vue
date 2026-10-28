@@ -68,10 +68,10 @@ const handleClick = () => {
   justify-content: center;
   border-radius: 50%;
   overflow: hidden;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #155e75 0%, #0f3d4c 100%);
   color: var(--color-text-inverse);
   font-weight: 600;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
 }
 
 .size-small {

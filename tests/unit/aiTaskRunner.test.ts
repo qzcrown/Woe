@@ -6,6 +6,7 @@
 
 
 
+
 jest.mock('../../src/services/pluginJobs/pluginJobService', () => {
   throw new Error('AiTaskRunner must not import pluginJobService')
 })
@@ -29,11 +30,12 @@ const input: AiProviderRequest = {
   maxTokens: 64,
   temperature: 0,
   timeoutMs: 3_000,
-  disableReasoning: true
+  reasoningEffort: 'high',
+  reasoningTokens: 25_600
 }
 
 describe('createAiTaskRunner', () => {
-  it('正常委托 provider 并原样透传 task 参数', async () => {
+  it('正常委托 provider 并原样透传 task 参数（含两个思考字段）', async () => {
     const result: AiProviderResult = { ok: true, text: 'hi' }
     const run = jest.fn(async (_input: AiProviderRequest) => result)
     const provider: AiProvider = { kind: 'workers-ai', run }
@@ -52,7 +54,7 @@ describe('createAiTaskRunner', () => {
     expect(run.mock.calls[0][0]).toEqual(input)
   })
 
-  it('可选字段缺省时不伪造 disableReasoning', async () => {
+  it('可选字段缺省时不伪造 reasoningEffort/reasoningTokens，也不透传旧字段', async () => {
     const run = jest.fn(async (_input: AiProviderRequest) => ({ ok: true, text: 'hi' }) as const)
     const runner = createAiTaskRunner(
       { provider: 'workers-ai', model: 'm' },
@@ -60,9 +62,40 @@ describe('createAiTaskRunner', () => {
       { providerFactory: () => ({ kind: 'workers-ai', run }) }
     )
 
-    const { disableReasoning: _ignored, ...withoutReasoning } = input
-    await runner.run(withoutReasoning)
+    await runner.run({
+      messages: input.messages,
+      maxTokens: input.maxTokens,
+      temperature: input.temperature,
+      timeoutMs: input.timeoutMs
+    })
 
+
+    expect(run.mock.calls[0][0]).toEqual({
+      messages: [{ role: 'user', content: 'hello' }],
+      maxTokens: 64,
+      temperature: 0,
+      timeoutMs: 3_000
+    })
+  })
+
+  it('只传 reasoningEffort 时 reasoningTokens 缺省不带键', async () => {
+    const run = jest.fn(async (_input: AiProviderRequest) => ({ ok: true, text: 'hi' }) as const)
+    const runner = createAiTaskRunner(
+      { provider: 'workers-ai', model: 'm' },
+      env,
+      { providerFactory: () => ({ kind: 'workers-ai', run }) }
+    )
+
+    await runner.run({
+      messages: input.messages,
+      maxTokens: input.maxTokens,
+      temperature: input.temperature,
+      timeoutMs: input.timeoutMs,
+      reasoningEffort: 'medium'
+    })
+
+    expect(run.mock.calls[0][0]).toMatchObject({ reasoningEffort: 'medium' })
+    expect(run.mock.calls[0][0]).not.toHaveProperty('reasoningTokens')
     expect(run.mock.calls[0][0]).not.toHaveProperty('disableReasoning')
   })
 

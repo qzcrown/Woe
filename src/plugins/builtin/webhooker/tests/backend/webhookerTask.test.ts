@@ -18,27 +18,26 @@
 
 
 
-import type { Env } from '../../src/types/index.ts'
-import type { WebhookerPayload } from '../../src/plugins/builtin/webhooker/types.ts'
-import type { PluginHostContext, PluginTaskResult } from '../../src/plugins/jobs/types.ts'
-import { OutboundHttpError, type OutboundHttpErrorCode } from '../../src/services/http/outboundPolicy.ts'
-import { PluginSecretError } from '../../src/services/pluginSecretService.ts'
-import { pluginConfigs, messages } from '../../src/models/index.ts'
-import { PluginJobService } from '../../src/services/pluginJobs/pluginJobService.ts'
-import { createPluginJobsTestDb } from '../helpers/pluginJobsTestDb.ts'
-import { asDrizzle } from '../helpers/testDb.ts'
+import type { Env } from '../../../../../../src/types/index.ts'
+import type { WebhookerPayload } from '../../../../../../src/plugins/builtin/webhooker/types.ts'
+import type { PluginHostContext, PluginTaskResult } from '../../../../../../src/plugins/jobs/types.ts'
+import { OutboundHttpError, type OutboundHttpErrorCode } from '../../../../../../src/services/http/outboundPolicy.ts'
+import { PluginSecretError } from '../../../../../../src/services/pluginSecretService.ts'
+import { pluginConfigs, messages } from '../../../../../../src/models/index.ts'
+import { PluginJobService } from '../../../../../../src/services/pluginJobs/pluginJobService.ts'
+import { createPluginJobsTestDb } from '../../../../../../tests/helpers/pluginJobsTestDb.ts'
+import { asDrizzle } from '../../../../../../tests/helpers/testDb.ts'
 import {
   createWebhookerDefinition,
   createWebhookerStaticDefinition,
-  createWebhookerTaskDefinition,
-  WEBHOOKER_TASK_METADATA
-} from '../../src/plugins/builtin/webhooker/definition.ts'
-import { createWebhookerTask } from '../../src/plugins/builtin/webhooker/task.ts'
+  createWebhookerTaskDefinition
+} from '../../../../../../src/plugins/builtin/webhooker/definition.ts'
+import { createWebhookerTask } from '../../../../../../src/plugins/builtin/webhooker/task.ts'
 import {
   builtinPluginTaskMetadata,
   builtinPluginTasks,
   createBuiltinPluginTasks
-} from '../../src/plugins/builtin/pluginTasks.ts'
+} from '../../../../../../src/plugins/builtin/pluginTasks.ts'
 
 const USER_ID = 7
 const PLUGIN_ID = 11
@@ -575,13 +574,13 @@ describe('createWebhookerDefinition：policy vars 求值', () => {
     expect(definition.outbound).toEqual({ allowHttp: true, allowQuery: true })
   })
 
-  test('env 工厂元数据完整：manualTrigger=false、无 quotaNamespace、secretFields', () => {
+  test('env 工厂只返回任务行为，元数据不随工厂复制', () => {
     const definition = createWebhookerDefinition(env({}))
-    expect(definition.modulePath).toBe('builtin/webhooker')
-    expect(definition.supportedSubjectTypes).toEqual(['message'])
-    expect(definition.secretFields).toEqual(['authToken'])
-    expect(definition.manualTrigger).toBe(false)
-    expect(definition.quotaNamespace).toBeUndefined()
+    expect(definition).not.toHaveProperty('modulePath')
+    expect(definition).not.toHaveProperty('supportedSubjectTypes')
+    expect(definition).not.toHaveProperty('secretFields')
+    expect(definition).not.toHaveProperty('manualTrigger')
+    expect(definition).not.toHaveProperty('quotaNamespace')
     expect(typeof definition.validateConfig).toBe('function')
     expect(typeof definition.prepareJob).toBe('function')
     expect(typeof definition.createTask).toBe('function')
@@ -717,27 +716,24 @@ describe('双注册接线：pluginTasks 目录', () => {
     expect(definition!.outbound).toEqual({ allowQuery: true })
   })
 
-  test('env 目录含 webhooker（createTask 可执行）', () => {
+  test('env 目录与当前静态任务集合一致，webhooker createTask 可执行', () => {
     const definitions = createBuiltinPluginTasks({} as Env)
     expect(definitions.map((d) => d.modulePath)).toEqual(
-      expect.arrayContaining(['builtin/webhooker'])
+      builtinPluginTasks.map((d) => d.modulePath)
     )
+    expect(definitions.some((d) => d.modulePath === 'builtin/webhooker')).toBe(true)
   })
 
-  test('元数据目录复用 definition 导出的常量（无双份字面量）', () => {
-    expect(builtinPluginTaskMetadata).toEqual(
-      expect.arrayContaining([
-        WEBHOOKER_TASK_METADATA
-      ])
+  test('元数据目录完整投影当前 manifest，webhooker 字段不从任务工厂复制', () => {
+    expect(builtinPluginTaskMetadata.map((d) => d.modulePath)).toEqual(
+      builtinPluginTasks.map((d) => d.modulePath)
     )
-  })
-
-  test('WEBHOOKER_TASK_METADATA：manualTrigger=false、secretFields、无 quotaNamespace', () => {
-    expect(WEBHOOKER_TASK_METADATA).toEqual({
+    expect(builtinPluginTaskMetadata.find((d) => d.modulePath === 'builtin/webhooker')).toEqual({
       modulePath: 'builtin/webhooker',
       supportedSubjectTypes: ['message'],
       secretFields: ['authToken'],
-      manualTrigger: false
+      manualTrigger: false,
+      outbound: { allowQuery: true }
     })
   })
 })

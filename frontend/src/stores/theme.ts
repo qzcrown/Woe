@@ -49,7 +49,16 @@ export const useThemeStore = defineStore('theme', () => {
 
 
 
+
+  let themeTransitionTimer: ReturnType<typeof setTimeout> | undefined
+
   const setTheme = (newMode: ThemeMode) => {
+
+
+    const root = document.documentElement
+    root.classList.add('theme-transitioning')
+    if (themeTransitionTimer) clearTimeout(themeTransitionTimer)
+    themeTransitionTimer = setTimeout(() => root.classList.remove('theme-transitioning'), 350)
     mode.value = newMode
     localStorage.setItem('theme', newMode)
     updateTheme()

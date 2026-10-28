@@ -23,9 +23,29 @@
     /* Path mapping */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "*": ["./node_modules/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.vue",
+    "../src/plugins/builtin/*/frontend/**/*.ts",
+    "../src/plugins/builtin/*/frontend/**/*.vue",
+    "../src/plugins/builtin/*/tests/frontend/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.tmp-*",
+    "**/*.backup-*",
+    "**/.plugin-tmp/**/*",
+    "src/generated/plugins.tmp-*",
+    "src/generated/plugins.backup-*",
+    "../src/plugins/builtin/**/*.tmp-*",
+    "../src/plugins/builtin/**/*.backup-*",
+    "../src/plugins/builtin/**/.plugin-tmp/**/*"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

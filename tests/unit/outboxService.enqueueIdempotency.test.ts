@@ -13,7 +13,107 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import { PushOutboxService } from '../../src/services/push/outboxService'
+import type { EnqueueForUserDevicesResult } from '../../src/services/push/outboxService'
+import { ProviderRegistry } from '../../src/services/push/providerRegistry'
+import type { ProviderSendResult } from '../../src/services/push/contracts'
 import { createTestDb, asDrizzle, seedClient } from '../helpers/testDb'
 import { pushOutbox, systemState } from '../../src/models'
 import { ENQUEUE_WRITE_GATE_KEY } from '../../src/services/writeGateService'
@@ -24,10 +124,33 @@ function makeInput(messageId: number, overrides: Partial<Parameters<PushOutboxSe
     messageId,
     appid: 42,
     date: '2026-09-24T10:00:00.000Z',
-    platform: 'fixture_a' as const,
+    platform: 'huawei' as const,
     message: 'hello',
     ...overrides
   }
+}
+
+
+
+
+
+const readyProviders = new ProviderRegistry([
+  {
+    platform: 'huawei',
+    provider: {
+      name: 'huawei',
+      send: async (): Promise<ProviderSendResult> => ({ ok: true, retriable: false })
+    },
+    policy: { maxRetries: 3, retryBackoffMs: 2000 }
+  }
+])
+
+
+function accepted(result: EnqueueForUserDevicesResult) {
+  if (result.status !== 'accepted') {
+    throw new Error(`expected accepted enqueue, got unavailable: ${result.reason}`)
+  }
+  return result
 }
 
 function allOutboxRows(testDb: ReturnType<typeof createTestDb>) {
@@ -49,15 +172,15 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
     const service = new PushOutboxService(asDrizzle(testDb))
     const client = seedClient(testDb)
 
-    const first = await service.enqueueForUserDevices(makeInput(100))
-    expect(first.count).toBe(1)
-    expect(first.outboxIds).toHaveLength(1)
+    const first = await service.enqueueForUserDevices(makeInput(100), readyProviders)
+    expect(accepted(first).count).toBe(1)
+    expect(accepted(first).outboxIds).toHaveLength(1)
 
 
 
-    const second = await service.enqueueForUserDevices(makeInput(100))
-    expect(second.count).toBe(0)
-    expect(second.outboxIds).toEqual([])
+    const second = await service.enqueueForUserDevices(makeInput(100), readyProviders)
+    expect(accepted(second).count).toBe(0)
+    expect(accepted(second).outboxIds).toEqual([])
 
     const rows = allOutboxRows(testDb)
     expect(rows).toHaveLength(1)
@@ -74,13 +197,13 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
     const clientB = seedClient(testDb, { deviceUid: 'device-b' })
 
 
-    const first = await service.enqueueForUserDevices(makeInput(200))
-    expect(first.count).toBe(2)
+    const first = await service.enqueueForUserDevices(makeInput(200), readyProviders)
+    expect(accepted(first).count).toBe(2)
     expect(allOutboxRows(testDb)).toHaveLength(2)
 
 
-    const second = await service.enqueueForUserDevices(makeInput(201))
-    expect(second.count).toBe(2)
+    const second = await service.enqueueForUserDevices(makeInput(201), readyProviders)
+    expect(accepted(second).count).toBe(2)
 
     const rows = allOutboxRows(testDb)
     expect(rows).toHaveLength(4)
@@ -90,8 +213,8 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
     }
 
 
-    const repeat = await service.enqueueForUserDevices(makeInput(200))
-    expect(repeat.count).toBe(0)
+    const repeat = await service.enqueueForUserDevices(makeInput(200), readyProviders)
+    expect(accepted(repeat).count).toBe(0)
     expect(allOutboxRows(testDb)).toHaveLength(4)
   })
 
@@ -100,15 +223,15 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
     const service = new PushOutboxService(asDrizzle(testDb))
     const client = seedClient(testDb)
 
-    const first = await service.enqueueForUserDevices(makeInput(300))
-    expect(first.count).toBe(1)
-    const originalId = first.outboxIds[0]
+    const first = await service.enqueueForUserDevices(makeInput(300), readyProviders)
+    expect(accepted(first).count).toBe(1)
+    const originalId = accepted(first).outboxIds[0]
 
     testDb.db.update(pushOutbox).set({ status: 'processing' }).run()
 
-    const second = await service.enqueueForUserDevices(makeInput(300))
-    expect(second.count).toBe(0)
-    expect(second.outboxIds).toEqual([])
+    const second = await service.enqueueForUserDevices(makeInput(300), readyProviders)
+    expect(accepted(second).count).toBe(0)
+    expect(accepted(second).outboxIds).toEqual([])
 
     const rows = allOutboxRows(testDb)
     expect(rows).toHaveLength(1)
@@ -117,26 +240,26 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
     expect(rows[0].clientId).toBe(client.id)
   })
 
-  test('两个 fixture_a client（均有 deviceToken）同消息入队 → 2 行；重复 → 仍 2 行、count=0；部分冲突批量 count=实际插入数', async () => {
+  test('两个 huawei client（均有 deviceToken）同消息入队 → 2 行；重复 → 仍 2 行、count=0；部分冲突批量 count=实际插入数', async () => {
     const testDb = createTestDb()
     const service = new PushOutboxService(asDrizzle(testDb))
     seedClient(testDb, { deviceUid: 'device-1' })
     seedClient(testDb, { deviceUid: 'device-2' })
 
-    const first = await service.enqueueForUserDevices(makeInput(400))
-    expect(first.count).toBe(2)
-    expect(first.outboxIds).toHaveLength(2)
+    const first = await service.enqueueForUserDevices(makeInput(400), readyProviders)
+    expect(accepted(first).count).toBe(2)
+    expect(accepted(first).outboxIds).toHaveLength(2)
     expect(allOutboxRows(testDb)).toHaveLength(2)
 
-    const repeat = await service.enqueueForUserDevices(makeInput(400))
-    expect(repeat.count).toBe(0)
-    expect(repeat.outboxIds).toEqual([])
+    const repeat = await service.enqueueForUserDevices(makeInput(400), readyProviders)
+    expect(accepted(repeat).count).toBe(0)
+    expect(accepted(repeat).outboxIds).toEqual([])
     expect(allOutboxRows(testDb)).toHaveLength(2)
 
 
     const newClient = seedClient(testDb, { deviceUid: 'device-3' })
-    const third = await service.enqueueForUserDevices(makeInput(400))
-    expect(third.count).toBe(1)
+    const third = await service.enqueueForUserDevices(makeInput(400), readyProviders)
+    expect(accepted(third).count).toBe(1)
 
     const rows = allOutboxRows(testDb)
     expect(rows).toHaveLength(3)
@@ -144,7 +267,7 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
 
 
     const liveIds = rows.map((r) => r.id).sort((a, b) => a - b)
-    expect(liveIds).toEqual([...first.outboxIds, third.outboxIds[0]].sort((a, b) => a - b))
+    expect(liveIds).toEqual([...accepted(first).outboxIds, accepted(third).outboxIds[0]].sort((a, b) => a - b))
   })
 
   test('落库 payloadJson 键集不含 deviceToken（自 push-flow mock 用例迁移的真库断言）', async () => {
@@ -153,9 +276,10 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
     seedClient(testDb)
 
     const result = await service.enqueueForUserDevices(
-      makeInput(500, { title: 'hello', priority: 5 })
+      makeInput(500, { title: 'hello', priority: 5 }),
+      readyProviders
     )
-    expect(result.count).toBe(1)
+    expect(accepted(result).count).toBe(1)
 
     const rows = allOutboxRows(testDb)
     expect(rows).toHaveLength(1)
@@ -164,7 +288,7 @@ describe('PushOutboxService.enqueueForUserDevices 入队幂等（0010 唯一索�
       ['appid', 'date', 'extras', 'message', 'messageId', 'platform', 'priority', 'title', 'userId']
     )
     expect(rows[0].status).toBe('pending')
-    expect(rows[0].platform).toBe('fixture_a')
+    expect(rows[0].platform).toBe('huawei')
     expect(JSON.parse(rows[0].payloadJson)).toEqual(expect.objectContaining({
       messageId: 500,
       appid: 42,
@@ -184,10 +308,10 @@ describe('enqueueForUserDevices 原子闸门（入口检查通过后闸门暂停
 
     seedGate(testDb, 'paused@d3')
 
-    const result = await service.enqueueForUserDevices(makeInput(600))
+    const result = await service.enqueueForUserDevices(makeInput(600), readyProviders)
 
-    expect(result.count).toBe(0)
-    expect(result.outboxIds).toEqual([])
+    expect(accepted(result).count).toBe(0)
+    expect(accepted(result).outboxIds).toEqual([])
     expect(allOutboxRows(testDb)).toHaveLength(0)
   })
 
@@ -197,10 +321,10 @@ describe('enqueueForUserDevices 原子闸门（入口检查通过后闸门暂停
     seedClient(testDb, { deviceUid: 'gate-device-c' })
     seedGate(testDb, 'paused')
 
-    const result = await service.enqueueForUserDevices(makeInput(601))
+    const result = await service.enqueueForUserDevices(makeInput(601), readyProviders)
 
-    expect(result.count).toBe(0)
-    expect(result.outboxIds).toEqual([])
+    expect(accepted(result).count).toBe(0)
+    expect(accepted(result).outboxIds).toEqual([])
     expect(allOutboxRows(testDb)).toHaveLength(0)
   })
 
@@ -210,10 +334,10 @@ describe('enqueueForUserDevices 原子闸门（入口检查通过后闸门暂停
     seedClient(testDb, { deviceUid: 'gate-device-d' })
     seedGate(testDb, 'open')
 
-    const result = await service.enqueueForUserDevices(makeInput(602))
+    const result = await service.enqueueForUserDevices(makeInput(602), readyProviders)
 
-    expect(result.count).toBe(1)
-    expect(result.outboxIds).toHaveLength(1)
+    expect(accepted(result).count).toBe(1)
+    expect(accepted(result).outboxIds).toHaveLength(1)
     expect(allOutboxRows(testDb)).toHaveLength(1)
   })
 })

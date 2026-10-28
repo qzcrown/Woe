@@ -9,6 +9,7 @@
 import app from "./app.ts";
 import { Env } from "./types/index.ts";
 import { MessageStreamHubObject } from "./durable/messageStreamHub.ts";
+import { PLUGIN_JOB_QUEUE_NAME, PUSH_QUEUE_NAME } from "./constants/queueNames.ts";
 
 
 
@@ -51,12 +52,6 @@ const exactBackendPaths = ["/static/defaultapp.png"];
 
 
 
-
-
-
-
-
-import { PLUGIN_JOB_QUEUE_NAME, PUSH_QUEUE_NAME } from "./constants/queueNames.ts";
 
 export default {
 
@@ -154,8 +149,14 @@ export default {
 
 
 
+
+
     try {
-      await cleanupService.cleanupPluginJobs();
+      const { createPluginTaskRegistry } = await import('./plugins/jobs/registry.ts');
+      const registry = createPluginTaskRegistry(env);
+      await cleanupService.cleanupPluginJobs(new Date(), {
+        hasTaskDefinition: (modulePath: string) => registry.has(modulePath)
+      });
     } catch (error) {
       console.error('Scheduled plugin job cleanup failed:', error);
     }

@@ -95,19 +95,19 @@ describe('API contract', () => {
     expect(readDocumentedEndpoints()).toEqual(expected)
   })
 
-  test('api-contract fixture documents 400 for GET /message/{id}', () => {
+  test('docs/api.yaml documents 400 for GET /message/{id}', () => {
     expect(readDocumentedResponses('/message/{id}', 'get')).toEqual(
       expect.arrayContaining(['200', '400', '401', '404'])
     )
   })
 
-  test('api-contract fixture documents 409 for PUT /client/{id}/push-state', () => {
+  test('docs/api.yaml documents 409 for PUT /client/{id}/push-state', () => {
     expect(readDocumentedResponses('/client/{id}/push-state', 'put')).toEqual(
       expect.arrayContaining(['200', '400', '401', '404', '409'])
     )
   })
 
-  test('api-contract fixture documents parsed safe integer priorities for all message encodings', () => {
+  test('docs/api.yaml documents parsed safe integer priorities for all message encodings', () => {
     const content = readOperation('/message', 'post').requestBody.content
     for (const media of ['application/json', 'application/x-www-form-urlencoded', 'multipart/form-data']) {
       const priority = content[media].schema.properties.priority
@@ -118,21 +118,21 @@ describe('API contract', () => {
     expect(content['application/json'].schema.properties.priority.nullable).toBe(true)
   })
 
-  test('api-contract fixture requires client token or basic auth for GET /current/user', () => {
+  test('docs/api.yaml requires client token or basic auth for GET /current/user', () => {
     expect(readOperation('/current/user', 'get').security).toEqual([
       { ClientToken: [] },
       { BasicAuth: [] }
     ])
   })
 
-  test('api-contract fixture requires client token or basic auth for GET /stream', () => {
+  test('docs/api.yaml requires client token or basic auth for GET /stream', () => {
     expect(readOperation('/stream', 'get').security).toEqual([
       { ClientToken: [] },
       { BasicAuth: [] }
     ])
   })
 
-  test('api-contract fixture documents POST /user as optional anonymous or client/basic auth only', () => {
+  test('docs/api.yaml documents POST /user as optional anonymous or client/basic auth only', () => {
     expect(readOperation('/user', 'post').security).toEqual([
       {},
       { ClientToken: [] },
@@ -140,7 +140,7 @@ describe('API contract', () => {
     ])
   })
 
-  test('api-contract fixture documents sortKey on Application and ApplicationParams', () => {
+  test('docs/api.yaml documents sortKey on Application and ApplicationParams', () => {
     const document = parse(readFileSync('tests/fixtures/api-contract.yaml', 'utf8')) as {
       components?: { schemas?: Record<string, { properties?: Record<string, { type?: string }> }> }
     }
@@ -174,7 +174,7 @@ describe('API contract', () => {
     expect(viewKeys).toEqual(documentedKeys)
   })
 
-  test('api-contract fixture documents plugin metadata fields on PluginConf', () => {
+  test('docs/api.yaml documents plugin metadata fields on PluginConf', () => {
     const document = parse(readFileSync('tests/fixtures/api-contract.yaml', 'utf8')) as {
       components?: { schemas?: Record<string, { properties?: Record<string, { type?: string; items?: { type?: string } }> }> }
     }
@@ -189,7 +189,7 @@ describe('API contract', () => {
     expect(pluginConfSchema?.properties?.configExample?.type).toBe('string')
   })
 
-  test('api-contract fixture marks required fields for Application, PluginConf and VersionInfo', () => {
+  test('docs/api.yaml marks required fields for Application, PluginConf and VersionInfo', () => {
     const document = parse(readFileSync('tests/fixtures/api-contract.yaml', 'utf8')) as {
       components?: { schemas?: Record<string, { required?: string[] }> }
     }
@@ -211,7 +211,7 @@ describe('API contract', () => {
     )
   })
 
-  test('api-contract fixture application token visibility is described per operation, not by the old empty-string claim', () => {
+  test('docs/api.yaml application token visibility is described per operation, not by the old empty-string claim', () => {
 
 
     const listDescription = readOperation('/application', 'get').description as string

@@ -20,27 +20,56 @@
 
 
 import { PushOutboxService } from '../../src/services/push/outboxService'
+import type { EnqueueForUserDevicesResult } from '../../src/services/push/outboxService'
+import { ProviderRegistry } from '../../src/services/push/providerRegistry'
+import type { ProviderSendResult } from '../../src/services/push/contracts'
 import { PushDispatcher } from '../../src/services/push/dispatcher'
 import { consumePushQueueBatch } from '../../src/services/push/queueConsumer'
 import { ClientHandlers } from '../../src/handlers/clientHandlers'
-import { createTestDb, asDrizzle, seedClient } from '../helpers/testDb'
+import { createTestDb, asDrizzle, seedClient as seedBaseClient } from '../helpers/testDb'
 import { clients, pushOutbox } from '../../src/models'
 import { eq } from 'drizzle-orm'
 
+const seedClient: typeof seedBaseClient = (testDb, overrides = {}) =>
+  seedBaseClient(testDb, { platform: 'web', ...overrides })
+
 let messageSeq = 0
+
+
+const readyProviders = new ProviderRegistry([
+  {
+    platform: 'web',
+    provider: {
+      name: 'web',
+      send: async (): Promise<ProviderSendResult> => ({ ok: true, retriable: false })
+    },
+    policy: { maxRetries: 3, retryBackoffMs: 2000 }
+  }
+])
+
+
+function accepted(result: EnqueueForUserDevicesResult) {
+  if (result.status !== 'accepted') {
+    throw new Error(`expected accepted enqueue, got unavailable: ${result.reason}`)
+  }
+  return result
+}
 
 
 async function enqueue(testDb: ReturnType<typeof createTestDb>) {
   messageSeq += 1
   const service = new PushOutboxService(asDrizzle(testDb))
-  const result = await service.enqueueForUserDevices({
-    userId: 7,
-    messageId: messageSeq,
-    appid: 42,
-    date: '2026-09-24T10:00:00.000Z',
-    platform: 'fixture_a',
-    message: 'hello'
-  })
+  const result = await service.enqueueForUserDevices(
+    {
+      userId: 7,
+      messageId: messageSeq,
+      appid: 42,
+      date: '2026-09-24T10:00:00.000Z',
+      platform: 'web',
+      message: 'hello'
+    },
+    readyProviders as any
+  )
   return { messageId: messageSeq, result }
 }
 
@@ -59,8 +88,13 @@ function makeRecordingProvider(sendImpl?: jest.Mock) {
     jest.fn(async () => ({ ok: true, retriable: false }))
   return {
     providers: {
-      get: jest.fn().mockReturnValue({ name: 'fixture_a', send }),
-      getPolicy: jest.fn().mockReturnValue({ maxRetries: 3, retryBackoffMs: 2000 })
+      get: jest.fn().mockReturnValue({ name: 'web', send }),
+      getPolicy: jest.fn().mockReturnValue({ maxRetries: 3, retryBackoffMs: 2000 }),
+      resolve: jest.fn().mockImplementation((platform: string) => ({
+        status: 'ready' as const,
+        provider: { name: platform, send },
+        policy: { maxRetries: 3, retryBackoffMs: 2000 }
+      }))
     },
     send
   }
@@ -78,14 +112,14 @@ describe('端到端：dispatcher.runOnce 真实链路（真库 + mock provider�
     const testDb = createTestDb()
     const client = seedClient(testDb)
     const { result } = await enqueue(testDb)
-    expect(result.count).toBe(1)
+    expect(accepted(result).count).toBe(1)
 
     const { providers, send } = makeRecordingProvider()
     await runDispatcher(testDb, providers)
 
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0][0].deviceToken).toBe(client.deviceToken)
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('success')
     expect(row.lastError).toBeNull()
   })
@@ -110,7 +144,7 @@ describe('端到端：queueConsumer 消费入口真实链路（真库 + mock pro
     const { result } = await enqueue(testDb)
 
     const { providers, send } = makeRecordingProvider()
-    const msg = makeMsg(result.outboxIds[0])
+    const msg = makeMsg(accepted(result).outboxIds[0])
     await consumePushQueueBatch(makeBatch(msg), {
       outbox: new PushOutboxService(asDrizzle(testDb)) as any,
       providers: providers as any,
@@ -119,7 +153,7 @@ describe('端到端：queueConsumer 消费入口真实链路（真库 + mock pro
 
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0][0].deviceToken).toBe(client.deviceToken)
-    expect(getRow(testDb, result.outboxIds[0]).status).toBe('success')
+    expect(getRow(testDb, accepted(result).outboxIds[0]).status).toBe('success')
     expect(msg.ack).toHaveBeenCalledTimes(1)
   })
 
@@ -131,14 +165,14 @@ describe('端到端：queueConsumer 消费入口真实链路（真库 + mock pro
     const failingSend = jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: '503' })
     const { providers } = makeRecordingProvider(failingSend)
     const queue = { sendBatch: jest.fn().mockResolvedValue(undefined) }
-    const msg = makeMsg(result.outboxIds[0])
+    const msg = makeMsg(accepted(result).outboxIds[0])
     await consumePushQueueBatch(makeBatch(msg), {
       outbox: new PushOutboxService(asDrizzle(testDb)) as any,
       providers: providers as any,
       queue: queue as any
     })
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('pending')
     expect(row.attemptCount).toBe(1)
     expect(row.nextRetryAt).not.toBeNull()
@@ -153,27 +187,30 @@ describe('用例 2：token 变化后重复入队仍一行，发送用新 token',
     const testDb = createTestDb()
     const client = seedClient(testDb)
     const { messageId, result: first } = await enqueue(testDb)
-    expect(first.count).toBe(1)
+    expect(accepted(first).count).toBe(1)
 
     testDb.db.update(clients).set({ deviceToken: 'rotated-token' }).where(eq(clients.id, client.id)).run()
 
     const service = new PushOutboxService(asDrizzle(testDb))
-    const second = await service.enqueueForUserDevices({
-      userId: 7,
-      messageId,
-      appid: 42,
-      date: '2026-09-24T10:00:00.000Z',
-      platform: 'fixture_a',
-      message: 'hello'
-    })
-    expect(second.count).toBe(0)
+    const second = await service.enqueueForUserDevices(
+      {
+        userId: 7,
+        messageId,
+        appid: 42,
+        date: '2026-09-24T10:00:00.000Z',
+        platform: 'web',
+        message: 'hello'
+      },
+      readyProviders as any
+    )
+    expect(accepted(second).count).toBe(0)
     expect(testDb.db.select().from(pushOutbox).all()).toHaveLength(1)
 
     const { providers, send } = makeRecordingProvider()
     await runDispatcher(testDb, providers)
 
     expect(send.mock.calls[0][0].deviceToken).toBe('rotated-token')
-    expect(getRow(testDb, first.outboxIds[0]).status).toBe('success')
+    expect(getRow(testDb, accepted(first).outboxIds[0]).status).toBe('success')
   })
 })
 
@@ -192,7 +229,7 @@ describe('用例 3/4：pending 行发送时使用经 PUT / POST 更新的最新 
 
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0][0].deviceToken).toBe('put-new-token')
-    expect(getRow(testDb, result.outboxIds[0]).status).toBe('success')
+    expect(getRow(testDb, accepted(result).outboxIds[0]).status).toBe('success')
   })
 
   test('用例 4：POST 重注册 createClient upsert 轮换 deviceToken → 同一断言', async () => {
@@ -203,7 +240,7 @@ describe('用例 3/4：pending 行发送时使用经 PUT / POST 更新的最新 
     const handlers = new ClientHandlers(asDrizzle(testDb))
     const res = await handlers.createClient(7, {
       name: 'Re-registered',
-      platform: 'fixture_a',
+      platform: 'web',
       deviceUid: client.deviceUid ?? undefined,
       deviceToken: 'post-new-token'
     })
@@ -216,7 +253,7 @@ describe('用例 3/4：pending 行发送时使用经 PUT / POST 更新的最新 
 
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0][0].deviceToken).toBe('post-new-token')
-    expect(getRow(testDb, result.outboxIds[0]).status).toBe('success')
+    expect(getRow(testDb, accepted(result).outboxIds[0]).status).toBe('success')
   })
 })
 
@@ -237,7 +274,7 @@ describe('用例 6/7：发送窗口内目标变化守卫', () => {
 
     await runDispatcher(testDb, providers)
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('pending')
     expect(row.attemptCount).toBe(1)
     expect(row.lastError).toContain('client target changed during send')
@@ -262,7 +299,7 @@ describe('用例 6/7：发送窗口内目标变化守卫', () => {
 
     await runDispatcher(testDb, providers)
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('dead')
     expect(row.attemptCount).toBe(1)
     expect(row.lastError).toBe('invalid token')
@@ -281,26 +318,26 @@ describe('用例 6/7：发送窗口内目标变化守卫', () => {
 
     await runDispatcher(testDb, providers)
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('pending')
     expect(row.lastError).toContain('client target changed during send')
     expect(row.attemptCount).toBe(1)
   })
 
-  test('用例 12 变体：失败期间平台变化（fixture_a → fixture_b）→ scheduleRetry', async () => {
+  test('用例 12 变体：失败期间平台变化（web → legacy-vendor）→ scheduleRetry', async () => {
     const testDb = createTestDb()
     const client = seedClient(testDb)
     const { result } = await enqueue(testDb)
 
     const send = jest.fn().mockImplementationOnce(async () => {
-      testDb.db.update(clients).set({ platform: 'fixture_b' }).where(eq(clients.id, client.id)).run()
+      testDb.db.update(clients).set({ platform: 'legacy-vendor' }).where(eq(clients.id, client.id)).run()
       return { ok: false, retriable: false, errorMessage: 'boom' }
     })
     const { providers } = makeRecordingProvider(send)
 
     await runDispatcher(testDb, providers)
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('pending')
     expect(row.lastError).toContain('client target changed during send')
   })
@@ -318,7 +355,7 @@ describe('用例 6/7：发送窗口内目标变化守卫', () => {
 
     await runDispatcher(testDb, providers)
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('pending')
     expect(row.lastError).toContain('client target changed during send')
   })
@@ -338,7 +375,7 @@ describe('用例 8/9：发送前闸门 dead（不调 provider）', () => {
     await runDispatcher(testDb, providers)
 
     expect(send).not.toHaveBeenCalled()
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('dead')
     expect(row.lastError).toContain('Suppressed')
     expect(row.lastError).toContain('token_status=inactive')
@@ -360,7 +397,7 @@ describe('用例 8/9：发送前闸门 dead（不调 provider）', () => {
     await runDispatcher(testDb, providers)
 
     expect(send).not.toHaveBeenCalled()
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('dead')
     expect(row.lastError).toBe('Undeliverable: client deleted')
   })
@@ -378,7 +415,7 @@ describe('用例 8/9：发送前闸门 dead（不调 provider）', () => {
     await runDispatcher(testDb, providers)
 
     expect(send).not.toHaveBeenCalled()
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('dead')
     expect(row.lastError).toBe('Undeliverable: no device token')
   })
@@ -394,7 +431,7 @@ describe('用例 8/9：发送前闸门 dead（不调 provider）', () => {
     await runDispatcher(testDb, providers)
 
     expect(send).not.toHaveBeenCalled()
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('dead')
     expect(row.lastError).toBe('Undeliverable: no device token')
   })
@@ -406,7 +443,7 @@ describe('用例 10：payload 瘦身回归（真库入队产物）', () => {
     seedClient(testDb)
     const { result } = await enqueue(testDb)
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     const payload = JSON.parse(row.payloadJson)
     expect(Object.keys(payload).sort()).toEqual(
       ['appid', 'date', 'extras', 'message', 'messageId', 'platform', 'priority', 'title', 'userId']
@@ -430,10 +467,10 @@ describe('用例 11：旧 payload 兼容', () => {
     testDb.db.insert(pushOutbox).values({
       userId: 7,
       messageId: messageSeq,
-      platform: 'fixture_a',
+      platform: 'web',
       payloadJson: JSON.stringify({
         userId: 7,
-        platform: 'fixture_a',
+        platform: 'web',
         messageId: messageSeq,
         appid: 42,
         date: '2026-09-24T10:00:00.000Z',
@@ -497,7 +534,7 @@ describe('用例 14：attemptCount 口径', () => {
     const client = seedClient(testDb)
     const { result } = await enqueue(testDb)
 
-    testDb.db.update(pushOutbox).set({ attemptCount: 2 }).where(eq(pushOutbox.id, result.outboxIds[0])).run()
+    testDb.db.update(pushOutbox).set({ attemptCount: 2 }).where(eq(pushOutbox.id, accepted(result).outboxIds[0])).run()
 
     const handlers = new ClientHandlers(asDrizzle(testDb))
     await handlers.updatePushState(7, String(client.id), 'inactive')
@@ -505,7 +542,7 @@ describe('用例 14：attemptCount 口径', () => {
     const { providers, send } = makeRecordingProvider()
     await runDispatcher(testDb, providers)
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('dead')
     expect(row.attemptCount).toBe(2)
     expect(send).not.toHaveBeenCalled()
@@ -520,7 +557,7 @@ describe('用例 14：attemptCount 口径', () => {
     const { providers } = makeRecordingProvider(send)
     await runDispatcher(testDb, providers)
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('pending')
     expect(row.attemptCount).toBe(1)
   })
@@ -529,13 +566,13 @@ describe('用例 14：attemptCount 口径', () => {
     const testDb = createTestDb()
     seedClient(testDb)
     const { result } = await enqueue(testDb)
-    testDb.db.update(pushOutbox).set({ attemptCount: 4 }).where(eq(pushOutbox.id, result.outboxIds[0])).run()
+    testDb.db.update(pushOutbox).set({ attemptCount: 4 }).where(eq(pushOutbox.id, accepted(result).outboxIds[0])).run()
 
     const send = jest.fn().mockResolvedValue({ ok: false, retriable: false, errorMessage: 'invalid token' })
     const { providers } = makeRecordingProvider(send)
     await runDispatcher(testDb, providers)
 
-    const row = getRow(testDb, result.outboxIds[0])
+    const row = getRow(testDb, accepted(result).outboxIds[0])
     expect(row.status).toBe('dead')
     expect(row.attemptCount).toBe(5)
   })

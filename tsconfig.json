@@ -21,6 +21,11 @@
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "**/*.tmp-*",
+    "**/*.backup-*",
+    "**/.plugin-tmp/**/*",
+    "src/plugins/builtin/*/frontend/**/*",
+    "src/plugins/builtin/*/tests/frontend/**/*"
   ]
 }

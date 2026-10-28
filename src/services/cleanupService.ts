@@ -1,6 +1,9 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { createDrizzle } from "../drizzle/index.ts";
-import { cleanupPluginJobs as runPluginJobCleanup } from "./pluginJobs/cleanup.ts";
+import {
+  cleanupPluginJobs as runPluginJobCleanup,
+  type PluginJobCleanupOptions,
+} from "./pluginJobs/cleanup.ts";
 
 
 
@@ -94,18 +97,24 @@ export class CleanupService {
 
 
 
-  async cleanupPluginJobs(now: Date = new Date()): Promise<{
+
+
+  async cleanupPluginJobs(
+    now: Date = new Date(),
+    options: PluginJobCleanupOptions
+  ): Promise<{
     success: boolean;
     deleted: number;
     deadMarked: number;
+    unavailableFailed: number;
     error?: string;
   }> {
     try {
-      const result = await runPluginJobCleanup(createDrizzle(this.db), now);
+      const result = await runPluginJobCleanup(createDrizzle(this.db), now, options);
 
-      if (result.deleted > 0 || result.deadMarked > 0) {
+      if (result.deleted > 0 || result.deadMarked > 0 || result.unavailableFailed > 0) {
         console.log(
-          `Cleanup service: plugin jobs deleted=${result.deleted} deadMarked=${result.deadMarked}`
+          `Cleanup service: plugin jobs deleted=${result.deleted} deadMarked=${result.deadMarked} unavailableFailed=${result.unavailableFailed}`
         );
       }
 
@@ -116,6 +125,7 @@ export class CleanupService {
         success: false,
         deleted: 0,
         deadMarked: 0,
+        unavailableFailed: 0,
         error: error instanceof Error ? error.message : "Unknown error",
       };
     }

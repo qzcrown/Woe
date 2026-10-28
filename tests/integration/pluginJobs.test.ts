@@ -365,20 +365,103 @@ describe('plugin job consumer availability and quota', () => {
     expect(row.lastErrorCode).toBe('plugin-unavailable')
   })
 
-  test('unknown modulePath fails as config', async () => {
+  test('unknown modulePath fails as plugin-unavailable without running the task or consuming quota', async () => {
     const testDb = createPluginJobsTestDb()
     seedUser(testDb)
     const message = seedMessage(testDb)
+    const run = jest.fn()
     const plugin = seedPlugin(testDb, { modulePath: 'test/never-registered' })
     const job = seedJob(testDb, { pluginId: plugin.id, subjectId: message.id })
-    const consumer = createConsumer(testDb)
-    const { batchLike } = createBatch([{ jobId: job.id }])
+    const { quota, consume } = createFakeQuota()
+    const consumer = createConsumer(testDb, { quota })
+    const { messages: msgs, batchLike } = createBatch([{ jobId: job.id }])
 
     await consumer.consume(batchLike)
 
+
+    expect(msgs[0].ack).toHaveBeenCalledTimes(1)
+    expect(msgs[0].retry).not.toHaveBeenCalled()
     const row = testDb.db.select().from(pluginJobs).where(eq(pluginJobs.id, job.id)).get()!
     expect(row.status).toBe('failed')
-    expect(row.lastErrorCode).toBe('config')
+    expect(row.lastErrorCode).toBe('plugin-unavailable')
+    expect(row.completedAt).not.toBeNull()
+    expect(logs(testDb)[0]).toMatchObject({
+      event: 'plugin_job.failed',
+      status: 0,
+      error: 'plugin-unavailable'
+    })
+
+    expect(run).not.toHaveBeenCalled()
+    expect(consume).not.toHaveBeenCalled()
+  })
+
+  test('unknown modulePath redelivery of a still-pending job fails once and acks again', async () => {
+    const testDb = createPluginJobsTestDb()
+    seedUser(testDb)
+    const message = seedMessage(testDb)
+    const plugin = seedPlugin(testDb, { modulePath: 'test/never-registered-redelivery' })
+    const job = seedJob(testDb, { pluginId: plugin.id, subjectId: message.id })
+    const consumer = createConsumer(testDb)
+
+    const first = createBatch([{ jobId: job.id }])
+    await consumer.consume(first.batchLike)
+    const second = createBatch([{ jobId: job.id }])
+    await consumer.consume(second.batchLike)
+
+
+    expect(second.messages[0].ack).toHaveBeenCalledTimes(1)
+    const row = testDb.db.select().from(pluginJobs).where(eq(pluginJobs.id, job.id)).get()!
+    expect(row.status).toBe('failed')
+    expect(logs(testDb)).toHaveLength(1)
+  })
+
+  test('restoring the module does not revive the terminal job', async () => {
+    const testDb = createPluginJobsTestDb()
+    seedUser(testDb)
+    const message = seedMessage(testDb)
+    const modulePath = 'test/restore-after-removal'
+    const run = jest.fn().mockResolvedValue({ ok: true })
+    const plugin = seedPlugin(testDb, { modulePath })
+    const job = seedJob(testDb, { pluginId: plugin.id, subjectId: message.id })
+
+
+    await createConsumer(testDb).consume(createBatch([{ jobId: job.id }]).batchLike)
+    let row = testDb.db.select().from(pluginJobs).where(eq(pluginJobs.id, job.id)).get()!
+    expect(row.status).toBe('failed')
+
+
+    registerDefinition(run as never, { modulePath })
+    const restoredConsumer = createConsumer(testDb)
+    const { messages: msgs, batchLike } = createBatch([{ jobId: job.id }])
+    await restoredConsumer.consume(batchLike)
+
+    expect(msgs[0].ack).toHaveBeenCalledTimes(1)
+    row = testDb.db.select().from(pluginJobs).where(eq(pluginJobs.id, job.id)).get()!
+    expect(row.status).toBe('failed')
+    expect(row.lastErrorCode).toBe('plugin-unavailable')
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  test('terminal status write failure does not ack the message', async () => {
+    const testDb = createPluginJobsTestDb()
+    seedUser(testDb)
+    const message = seedMessage(testDb)
+    const plugin = seedPlugin(testDb, { modulePath: 'test/unknown-write-fails' })
+    const job = seedJob(testDb, { pluginId: plugin.id, subjectId: message.id })
+    const drizzle = asDrizzle(testDb)
+
+    jest.spyOn(drizzle, 'update').mockImplementationOnce(() => {
+      throw new Error('d1 write failed')
+    })
+    const consumer = new PluginJobQueueConsumer({ drizzle, env: {} as Env, quota: createFakeQuota().quota })
+    const { messages: msgs, batchLike } = createBatch([{ jobId: job.id }])
+
+    await consumer.consume(batchLike)
+
+    expect(msgs[0].ack).not.toHaveBeenCalled()
+    expect(msgs[0].retry).toHaveBeenCalledTimes(1)
+    const row = testDb.db.select().from(pluginJobs).where(eq(pluginJobs.id, job.id)).get()!
+    expect(row.status).toBe('pending')
   })
 
   test('quota exceeded at consume time fails with limit-exceeded and never runs the task', async () => {
@@ -554,7 +637,7 @@ describe('plugin job consumer delivery and usage semantics', () => {
     expect(row.status).toBe('success')
   })
 
-  test('quotaConsumed=false skips usage consumption', async () => {
+  test('plain ok:true with quotaConsumed=false skips usage and writes no capacity-full log', async () => {
     const testDb = createPluginJobsTestDb()
     seedUser(testDb)
     const message = seedMessage(testDb)
@@ -573,7 +656,46 @@ describe('plugin job consumer delivery and usage semantics', () => {
     expect(consume).not.toHaveBeenCalled()
     const row = testDb.db.select().from(pluginJobs).where(eq(pluginJobs.id, job.id)).get()!
     expect(row.status).toBe('success')
-    expect(testDb.sqlite.prepare("SELECT event FROM plugin_logs WHERE event = 'plugin_job.skipped'").all()).toEqual([])
+
+    expect(logs(testDb)).toHaveLength(0)
+  })
+
+  test('explicit skipped capacity-full writes plugin_job.skipped and ends as success', async () => {
+    const testDb = createPluginJobsTestDb()
+    seedUser(testDb)
+    const message = seedMessage(testDb)
+    const definition = registerDefinition(
+      async () => ({
+        ok: true,
+        skipped: { code: 'capacity-full' },
+        result: { tags: ['existing'] },
+        quotaConsumed: false
+      }),
+      { quotaNamespace: 'ai' }
+    )
+    const plugin = seedPlugin(testDb, { modulePath: definition.modulePath })
+    const job = seedJob(testDb, { pluginId: plugin.id, subjectId: message.id })
+    const { quota, consume } = createFakeQuota()
+    const consumer = createConsumer(testDb, { quota })
+    const { batchLike } = createBatch([{ jobId: job.id }])
+
+    await consumer.consume(batchLike)
+
+    expect(consume).not.toHaveBeenCalled()
+    const row = testDb.db.select().from(pluginJobs).where(eq(pluginJobs.id, job.id)).get()!
+    expect(row.status).toBe('success')
+    expect(JSON.parse(row.result as string)).toEqual({ tags: ['existing'] })
+    expect(row.lastErrorCode).toBeNull()
+
+    const rows = logs(testDb)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      pluginId: plugin.id,
+      userId: USER_ID,
+      event: 'plugin_job.skipped',
+      status: 1,
+      error: 'capacity-full'
+    })
   })
 
   test('a batch with several messages is processed one by one', async () => {
@@ -623,10 +745,11 @@ describe('plugin job cleanup', () => {
     })
 
     const now = new Date('2026-10-23T12:00:00.000Z')
-    const result = await cleanupPluginJobs(asDrizzle(testDb), now)
+    const result = await cleanupPluginJobs(asDrizzle(testDb), now, { hasTaskDefinition: () => true })
 
     expect(result.deleted).toBe(2)
     expect(result.deadMarked).toBe(0)
+    expect(result.unavailableFailed).toBe(0)
     const ids = testDb.db.select({ id: pluginJobs.id }).from(pluginJobs).all().map((r) => r.id)
     expect(ids).toEqual([kept.id])
     expect(ids).not.toContain(oldSuccess.id)
@@ -653,10 +776,11 @@ describe('plugin job cleanup', () => {
     })
 
     const now = new Date('2026-10-23T12:00:00.000Z')
-    const result = await cleanupPluginJobs(asDrizzle(testDb), now)
+    const result = await cleanupPluginJobs(asDrizzle(testDb), now, { hasTaskDefinition: () => true })
 
     expect(result.deadMarked).toBe(1)
     expect(result.deleted).toBe(0)
+    expect(result.unavailableFailed).toBe(0)
     const staleRow = testDb.db.select().from(pluginJobs).where(eq(pluginJobs.id, stale.id)).get()!
     expect(staleRow.status).toBe('dead')
     expect(staleRow.completedAt).not.toBeNull()
@@ -707,7 +831,9 @@ describe('plugin job cleanup', () => {
       return realUpdate(table)
     }) as unknown as typeof drizzle.update)
 
-    const result = await cleanupPluginJobs(drizzle, new Date('2026-10-23T12:00:00.000Z'))
+    const result = await cleanupPluginJobs(drizzle, new Date('2026-10-23T12:00:00.000Z'), {
+      hasTaskDefinition: () => true
+    })
 
     expect(result.deadMarked).toBe(1)
     expect(result.deleted).toBe(0)
@@ -748,7 +874,9 @@ describe('plugin job cleanup', () => {
       createdAt: '2026-10-01 00:00:00'
     })
 
-    const result = await cleanupPluginJobs(asDrizzle(testDb), new Date('2026-10-23T12:00:00.000Z'))
+    const result = await cleanupPluginJobs(asDrizzle(testDb), new Date('2026-10-23T12:00:00.000Z'), {
+      hasTaskDefinition: () => true
+    })
 
     expect(result.deadMarked).toBe(0)
     const row = testDb.db.select().from(pluginJobs).where(eq(pluginJobs.id, oldTerminal.id)).get()!

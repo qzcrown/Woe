@@ -32,13 +32,13 @@ export class PushDispatcher {
 
 
 
-        const locked = await this.outboxService.markProcessing(job.id);
-        if (!locked) continue;
+        const lease = await this.outboxService.markProcessing(job.id);
+        if (lease === null) continue;
 
 
         await processClaimedJob(
           { outbox: this.outboxService, providers: this.providers },
-          job
+          { ...job, status: "processing", updatedAt: lease }
         );
       }
 

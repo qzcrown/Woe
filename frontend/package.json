@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "node ../scripts/plugins/generate.mjs",
+    "predev": "node ../scripts/plugins/generate.mjs",
     "dev": "vite",
+    "prebuild": "node ../scripts/plugins/generate.mjs",
     "build": "vue-tsc && vite build",
+    "prebuild:proxy": "node ../scripts/plugins/generate.mjs",
     "build:proxy": "vue-tsc && vite build --base=/proxy/",
     "preview": "vite preview"
   },

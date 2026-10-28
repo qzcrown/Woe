@@ -1,4 +1,3 @@
-import '../helpers/publicTaskFixture'
 
 
 
@@ -23,6 +22,16 @@ jest.mock('../../src/services/migrationRunner.ts', () => ({
   }
 }))
 
+jest.mock('../../src/plugins/jobs/registry.ts', () => {
+  const actual = jest.requireActual('../../src/plugins/jobs/registry.ts')
+  return {
+    ...actual,
+    getQuotaNamespaces: () => ['route-quota'],
+    getQuotaNamespaceModulePaths: (namespace: string) =>
+      namespace === 'route-quota' ? ['test/route-jobs'] : []
+  }
+})
+
 import app from '../../src/app'
 import { createDrizzle } from '../../src/drizzle/index'
 import { registerPluginTask } from '../../src/plugins/jobs/registry'
@@ -34,8 +43,9 @@ import { hashPasswordOnce } from '../helpers/passwordHash'
 import { applications, clients, messages, pluginConfigs, userPluginPermissions } from '../../src/models'
 import type { TestDb } from '../helpers/testDb'
 
-const VALID_CONFIG = 'valid: true\n'
-const INVALID_CONFIG = 'valid: false\n'
+const ROUTE_MODULE = 'test/route-jobs'
+const VALID_CONFIG = 'provider: route\nmodel: "route-model"\n'
+const INVALID_CONFIG = 'provider: route\nmodel: "invalid"\n'
 
 const OWNER_ID = 1
 const OTHER_ID = 2
@@ -44,6 +54,25 @@ const OWNER_CLIENT_TOKEN = 'Cowner-token'
 const OTHER_CLIENT_TOKEN = 'Cother-token'
 const OWNER_APP_TOKEN = 'Aowner-app-token'
 const PLUGIN_ID = 10
+
+registerPluginTask({
+  modulePath: ROUTE_MODULE,
+  supportedSubjectTypes: ['message'],
+  quotaNamespace: 'route-quota',
+  secretFields: ['apiKey'],
+  async validateConfig({ config, host }) {
+    if ((config as { model?: string } | null)?.model !== 'route-model') {
+      return { errorCode: 'config' as const }
+    }
+    if ((config as { provider?: string }).provider === 'secret-required') {
+      const hasSecret = await host.secrets.has('apiKey')
+      if (!hasSecret) return { errorCode: 'secret-config' as const }
+    }
+  },
+  async createTask() {
+    throw new Error('route tests must not execute tasks')
+  }
+})
 
 
 const NO_MESSAGE_MODULE = 'test/no-message-subject'
@@ -180,7 +209,7 @@ async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
         userId: OWNER_ID,
         name: 'Example Task',
         token: 'plugin-token-10',
-        modulePath: 'test/public-task',
+        modulePath: ROUTE_MODULE,
         configYaml: VALID_CONFIG,
         enabled: 1
       },
@@ -189,7 +218,7 @@ async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
         userId: OTHER_ID,
         name: 'Other Example Task',
         token: 'plugin-token-11',
-        modulePath: 'test/public-task',
+        modulePath: ROUTE_MODULE,
         configYaml: VALID_CONFIG,
         enabled: 1
       },
@@ -198,7 +227,7 @@ async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
         userId: OWNER_ID,
         name: 'Disabled Example Task',
         token: 'plugin-token-12',
-        modulePath: 'test/public-task',
+        modulePath: ROUTE_MODULE,
         configYaml: VALID_CONFIG,
         enabled: 0
       },
@@ -216,7 +245,7 @@ async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
         userId: OWNER_ID,
         name: 'Broken Config',
         token: 'plugin-token-14',
-        modulePath: 'test/public-task',
+        modulePath: ROUTE_MODULE,
         configYaml: INVALID_CONFIG,
         enabled: 1
       },
@@ -246,7 +275,7 @@ async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
   testDb.db
     .insert(userPluginPermissions)
     .values([
-      { userId: OWNER_ID, modulePath: 'test/public-task' },
+      { userId: OWNER_ID, modulePath: ROUTE_MODULE },
       { userId: OWNER_ID, modulePath: NO_MESSAGE_MODULE },
       { userId: OWNER_ID, modulePath: EVENT_ONLY_MODULE },
       { userId: OWNER_ID, modulePath: OUTBOUND_BLOCKED_MODULE }
@@ -561,7 +590,7 @@ describe('POST /message/:id/jobs validation mapping', () => {
   })
 
   test('quota exceeded -> 429', async () => {
-    const fx = await makeFixture({ kv: { 'ai:limit:1': '0' } })
+    const fx = await makeFixture({ kv: { 'route-quota:limit:1': '0' } })
     const response = await fx.request('/message/1/jobs', {
       method: 'POST',
       token: OWNER_CLIENT_TOKEN,
@@ -703,14 +732,14 @@ describe('POST /message/:id/jobs validation mapping', () => {
 })
 
 describe('POST /message/:id/jobs authorization and secret errors', () => {
-  const SECRET_CONFIG = `valid: true\nrequireSecret: true\n`
+  const SECRET_REQUIRED_CONFIG = 'provider: secret-required\nmodel: "route-model"\n'
 
   test('损坏的 secret envelope -> 409（不是 500），不建 job 且日志为 secret-decrypt-failed', async () => {
     const fx = await makeFixture()
 
     fx.testDb.sqlite
       .prepare('UPDATE plugin_configs SET config_yaml = ?, encrypted_secret = ? WHERE id = ?')
-      .run(SECRET_CONFIG, '{not-json', PLUGIN_ID)
+      .run(SECRET_REQUIRED_CONFIG, '{not-json', PLUGIN_ID)
 
     const response = await fx.request('/message/1/jobs', {
       method: 'POST',
@@ -747,7 +776,7 @@ describe('POST /message/:id/jobs authorization and secret errors', () => {
 
     fx.testDb.sqlite
       .prepare('DELETE FROM user_plugin_permissions WHERE user_id = ? AND module_path = ?')
-      .run(OWNER_ID, 'test/public-task')
+      .run(OWNER_ID, ROUTE_MODULE)
 
     const response = await fx.request('/message/1/jobs', {
       method: 'POST',
@@ -776,7 +805,7 @@ describe('POST /message/:id/jobs authorization and secret errors', () => {
         userId: ADMIN_ID,
         name: 'Admin Example Task',
         token: 'plugin-token-20',
-        modulePath: 'test/public-task',
+        modulePath: ROUTE_MODULE,
         configYaml: VALID_CONFIG,
         enabled: 1
       })

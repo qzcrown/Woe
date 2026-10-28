@@ -158,7 +158,7 @@ describe('validateOutboundUrl', () => {
   })
 })
 
-describe('validateOutboundUrl 策略开关（design §4.1）', () => {
+describe('validateOutboundUrl 策略开关', () => {
   it('缺省策略保持严格：http/私网/query 一律拒绝（与不传 policy 等价）', () => {
     rejectUnder('http://example.com/hook', 'insecure', {})
     rejectUnder('https://127.0.0.1/hook', 'private-host', {})
@@ -467,7 +467,7 @@ describe('createOutboundHttp', () => {
     expect(outboundError.message).not.toContain('example.com')
   })
 
-  describe('policy 参数（design §4.1：createOutboundHttp 接受 OutboundPolicyOptions）', () => {
+  describe('policy 参数', () => {
     it('策略放行的目标会真正出站（http + query）', async () => {
       const fetchMock = jest.fn(async () => new Response('ok', { status: 200 }))
       const http = createOutboundHttp({

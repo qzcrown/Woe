@@ -14,7 +14,7 @@ import {
   WEBHOOKER_MAX_TIMEOUT_MS,
   WEBHOOKER_MODULE_PATH,
   resolveWebhookerConfig
-} from '../../src/plugins/builtin/webhooker/config'
+} from '../../../../../../src/plugins/builtin/webhooker/config'
 
 const minimal = { targetUrl: 'https://example.com/webhook' }
 
@@ -65,7 +65,7 @@ describe('resolveWebhookerConfig：基础 schema', () => {
     })
   })
 
-  test('未知字段忽略（含历史注释字段与 example task 的 apiKey 占位写法）', () => {
+  test('未知字段忽略（含历史注释字段与占位 secret 写法）', () => {
     expect(resolveWebhookerConfig({ ...minimal, legacy: 'delay', apiKey: '***' }).ok).toBe(true)
   })
 

@@ -6,6 +6,7 @@
 import { DrizzleDB } from "../../drizzle/index.ts";
 import { clients, pushOutbox } from "../../models/index.ts";
 import { and, eq, sql } from "drizzle-orm";
+import type { ProviderResolver, PushPlatform } from "./contracts.ts";
 import { ENQUEUE_WRITE_GATE_KEY, ENQUEUE_WRITE_GATE_PAUSED } from "../writeGateService.ts";
 
 
@@ -19,7 +20,8 @@ export interface PushOutboxJob {
   id: number;
   userId: number;
   messageId: number;
-  platform: string;
+
+  platform: PushPlatform;
   clientId: number | null;
   payloadJson: string;
   status: "pending" | "processing" | "success" | "failed" | "dead";
@@ -34,7 +36,7 @@ export interface PushOutboxJob {
 export interface EnqueuePushOutboxInput {
   userId: number;
   messageId: number;
-  platform: string;
+  platform: PushPlatform;
   clientId?: number;
   payloadJson: string;
 }
@@ -45,19 +47,23 @@ export interface EnqueueForUserDevicesInput {
   messageId: number;
   appid: number;
   date: string;
-  platform: string;
+  platform: PushPlatform;
   title?: string;
   message: string;
   priority?: number;
   extras?: Record<string, any>;
 }
 
-export interface EnqueueForUserDevicesResult {
 
-  count: number;
 
-  outboxIds: number[];
-}
+
+
+
+
+
+export type EnqueueForUserDevicesResult =
+  | { status: "accepted"; count: number; outboxIds: number[] }
+  | { status: "unavailable"; reason: "disabled" | "init-failed" | "unregistered" };
 
 
 
@@ -74,7 +80,7 @@ export type PushTargetLookup =
       kind: "ready" | "inactive" | "no-token";
       clientId: number;
 
-      platform: string;
+      platform: PushPlatform;
       deviceToken: string | null;
       tokenUpdatedAt: string | null;
       tokenStatus: string;
@@ -120,7 +126,21 @@ export class PushOutboxService {
   }
 
 
-  async enqueueForUserDevices(input: EnqueueForUserDevicesInput): Promise<EnqueueForUserDevicesResult> {
+
+
+
+
+
+
+  async enqueueForUserDevices(
+    input: EnqueueForUserDevicesInput,
+    providers: ProviderResolver
+  ): Promise<EnqueueForUserDevicesResult> {
+    const resolution = providers.resolve(input.platform);
+    if (resolution.status !== "ready") {
+      return { status: "unavailable", reason: resolution.status };
+    }
+
     const targetClients = await this.drizzle
       .select({
         id: clients.id,
@@ -136,7 +156,7 @@ export class PushOutboxService {
       );
 
     if (!targetClients.length) {
-      return { count: 0, outboxIds: [] };
+      return { status: "accepted", count: 0, outboxIds: [] };
     }
 
     const values = targetClients.map((target) => ({
@@ -186,6 +206,7 @@ export class PushOutboxService {
       RETURNING id`)) as { id: number }[];
 
     return {
+      status: "accepted",
       count: inserted.length,
       outboxIds: inserted.map((row) => row.id)
     };
@@ -251,7 +272,7 @@ export class PushOutboxService {
 
     const snapshot = {
       clientId,
-      platform: (row.platform || "unknown") as string,
+      platform: (row.platform || "unknown") as PushPlatform,
       deviceToken: row.deviceToken ?? null,
       tokenUpdatedAt: row.tokenUpdatedAt ?? null,
       tokenStatus: row.tokenStatus
@@ -268,21 +289,21 @@ export class PushOutboxService {
   }
 
 
-  async markProcessing(id: number): Promise<boolean> {
-    const result = await this.drizzle
+  async markProcessing(id: number): Promise<string | null> {
+    const rows = await this.drizzle
       .update(pushOutbox)
       .set({
         status: "processing",
         updatedAt: new Date().toISOString()
       })
-      .where(and(eq(pushOutbox.id, id), eq(pushOutbox.status, "pending")));
+      .where(and(eq(pushOutbox.id, id), eq(pushOutbox.status, "pending")))
+      .returning({ updatedAt: pushOutbox.updatedAt });
 
-
-    return affectedRows(result) > 0;
+    return rows[0]?.updatedAt ?? null;
   }
 
 
-  async markSuccess(id: number): Promise<void> {
+  async markSuccess(id: number, lease: string): Promise<void> {
     await this.drizzle
       .update(pushOutbox)
       .set({
@@ -290,12 +311,12 @@ export class PushOutboxService {
         lastError: null,
         updatedAt: new Date().toISOString()
       })
-      .where(eq(pushOutbox.id, id));
+      .where(and(eq(pushOutbox.id, id), eq(pushOutbox.status, "processing"), eq(pushOutbox.updatedAt, lease)));
   }
 
 
-  async scheduleRetry(id: number, attemptCount: number, nextRetryAt: string, error: string): Promise<void> {
-    await this.drizzle
+  async scheduleRetry(id: number, attemptCount: number, nextRetryAt: string, error: string, lease: string): Promise<boolean> {
+    const rows = await this.drizzle
       .update(pushOutbox)
       .set({
         status: "pending",
@@ -304,11 +325,13 @@ export class PushOutboxService {
         lastError: error,
         updatedAt: new Date().toISOString()
       })
-      .where(eq(pushOutbox.id, id));
+      .where(and(eq(pushOutbox.id, id), eq(pushOutbox.status, "processing"), eq(pushOutbox.updatedAt, lease)))
+      .returning({ id: pushOutbox.id });
+    return rows.length > 0;
   }
 
 
-  async suspend(id: number, nextRetryAt: string, reason: string): Promise<void> {
+  async suspend(id: number, nextRetryAt: string, reason: string, lease: string): Promise<void> {
     await this.drizzle
       .update(pushOutbox)
       .set({
@@ -317,7 +340,7 @@ export class PushOutboxService {
         lastError: reason,
         updatedAt: new Date().toISOString()
       })
-      .where(eq(pushOutbox.id, id));
+      .where(and(eq(pushOutbox.id, id), eq(pushOutbox.status, "processing"), eq(pushOutbox.updatedAt, lease)));
   }
 
 
@@ -335,8 +358,8 @@ export class PushOutboxService {
   }
 
 
-  async markDead(id: number, attemptCount: number, error: string): Promise<void> {
-    await this.drizzle
+  async markDead(id: number, attemptCount: number, error: string, lease: string): Promise<boolean> {
+    const rows = await this.drizzle
       .update(pushOutbox)
       .set({
         status: "dead",
@@ -344,16 +367,66 @@ export class PushOutboxService {
         lastError: error,
         updatedAt: new Date().toISOString()
       })
-      .where(eq(pushOutbox.id, id));
+      .where(and(eq(pushOutbox.id, id), eq(pushOutbox.status, "processing"), eq(pushOutbox.updatedAt, lease)))
+      .returning({ id: pushOutbox.id });
+    return rows.length > 0;
   }
 
 
-  async invalidateClient(clientId: number, reason: string): Promise<void> {
-    await this.drizzle.update(clients)
-      .set({ tokenStatus: 'invalid', deviceToken: null })
-      .where(sql`${clients.id} = ${clientId} AND ${clients.tokenStatus} = 'active'`);
-    await this.drizzle.update(pushOutbox)
-      .set({ status: 'dead', lastError: reason, updatedAt: new Date().toISOString() })
-      .where(sql`${pushOutbox.clientId} = ${clientId} AND ${pushOutbox.status} IN ('pending', 'processing')`);
+  async invalidateClient(
+    clientId: number,
+    reason: string,
+    jobId: number,
+    attemptCount: number,
+    error: string,
+    lease: string
+  ): Promise<void> {
+    const updatedAt = new Date().toISOString();
+    const statements = [
+      {
+        sql: `UPDATE clients SET token_status = 'invalid', device_token = NULL
+          WHERE id = ? AND token_status = 'active'
+          AND EXISTS (
+            SELECT 1 FROM push_outbox
+            WHERE id = ? AND client_id = ? AND status = 'processing' AND updated_at = ?
+          )`,
+        args: [clientId, jobId, clientId, lease] as unknown[]
+      },
+      {
+        sql: `UPDATE push_outbox SET status = 'dead', last_error = ?, updated_at = ?
+          WHERE client_id = ? AND id <> ? AND status IN ('pending', 'processing')
+          AND EXISTS (
+            SELECT 1 FROM push_outbox
+            WHERE id = ? AND client_id = ? AND status = 'processing' AND updated_at = ?
+          )`,
+        args: [reason, updatedAt, clientId, jobId, jobId, clientId, lease] as unknown[]
+      },
+      {
+        sql: `UPDATE push_outbox SET status = 'dead', attempt_count = ?, last_error = ?, updated_at = ?
+          WHERE id = ? AND client_id = ? AND status = 'processing' AND updated_at = ?`,
+        args: [attemptCount, error, updatedAt, jobId, clientId, lease] as unknown[]
+      }
+    ];
+
+    type D1BatchClient = {
+      prepare(sql: string): { bind(...args: unknown[]): unknown };
+      batch(statements: unknown[]): Promise<unknown>;
+    };
+    type SqliteTransactionClient = {
+      prepare(sql: string): { run(...args: unknown[]): unknown };
+      transaction<T>(fn: () => T): () => T;
+    };
+    const rawClient = this.drizzle.$client as unknown as D1BatchClient | SqliteTransactionClient;
+    if ('batch' in rawClient && typeof rawClient.batch === 'function') {
+      await rawClient.batch(statements.map((statement) => rawClient.prepare(statement.sql).bind(...statement.args)));
+      return;
+    }
+
+    const sqlite = rawClient as SqliteTransactionClient;
+    sqlite.transaction(() => {
+      for (const statement of statements) {
+        sqlite.prepare(statement.sql).run(...statement.args);
+      }
+    })();
   }
 }

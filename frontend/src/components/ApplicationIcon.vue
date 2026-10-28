@@ -163,7 +163,7 @@ const deleteImage = async () => {
   border-radius: 8px;
   overflow: hidden;
   background-color: var(--color-bg-hover);
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
 }
 
 .size-small {

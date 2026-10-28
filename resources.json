@@ -1,0 +1,66 @@
+{
+  "$comment": "运维资源映射模板：复制为 wrangler.resources.json（已 gitignore）并填入真实 ID/名称。只提供环境、目标环境 Worker 名称、资源 ID/名称与非 secret 参数；插件启用集合只由实际包目录决定，本文件不是启用名单。Secret 值（DEFAULT_ADMIN_PASSWORD、PLUGIN_SECRET_MASTER_KEY 等）永远不得写入本文件。REPLACE_WITH_* 是占位符，wrangler deploy --dry-run 可直接消费，真实部署前必须替换。",
+  "environments": {
+    "production": {
+      "workerName": "woe",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "REGISTRATION": false
+      },
+      "resources": {
+        "d1": {
+          "db": {
+            "databaseName": "woe-db",
+            "databaseId": "REPLACE_WITH_D1_DATABASE_ID"
+          }
+        },
+        "r2": {
+          "storage": {
+            "bucketName": "woe-storage"
+          }
+        },
+        "kv": {
+          "quota-kv": {
+            "id": "REPLACE_WITH_QUOTA_KV_ID"
+          }
+        }
+      },
+      "queues": {
+        "plugin-jobs": {
+          "name": "woe-plugin-jobs"
+        }
+      }
+    },
+    "staging": {
+      "workerName": "woe-staging",
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "REGISTRATION": true,
+        "WEBHOOKER_ALLOW_HTTP": "true"
+      },
+      "resources": {
+        "d1": {
+          "db": {
+            "databaseName": "woe-staging-db",
+            "databaseId": "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+          }
+        },
+        "r2": {
+          "storage": {
+            "bucketName": "woe-staging-storage"
+          }
+        },
+        "kv": {
+          "quota-kv": {
+            "id": "REPLACE_WITH_STAGING_QUOTA_KV_ID"
+          }
+        }
+      },
+      "queues": {
+        "plugin-jobs": {
+          "name": "woe-staging-plugin-jobs"
+        }
+      }
+    }
+  }
+}

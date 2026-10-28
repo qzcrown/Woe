@@ -1,5 +1,10 @@
 import { ApiError } from '@/types'
 import { browserNotificationService } from '@/services/browserNotification'
+import i18n from '@/locales'
+
+
+const t = (key: string, params?: Record<string, unknown>): string =>
+  i18n.global.t(key, params ?? {})
 
 export enum NotificationType {
   SUCCESS = 'success',
@@ -59,8 +64,8 @@ export class ErrorHandler {
 
 
   handleApiError(error: ApiError | Error, context?: string): void {
-    let title = 'Error'
-    let message = 'An unexpected error occurred'
+    let title = t('errors.title')
+    let message = t('errors.unexpected')
 
     if (error instanceof ApiError) {
       title = error.error
@@ -69,23 +74,23 @@ export class ErrorHandler {
 
       switch (error.statusCode) {
         case 400:
-          title = 'Validation Error'
+          title = t('errors.validationTitle')
           break
         case 401:
-          title = 'Authentication Error'
-          message = 'Please log in to continue'
+          title = t('errors.authTitle')
+          message = t('errors.authMessage')
           break
         case 403:
-          title = 'Permission Denied'
-          message = 'You do not have permission to perform this action'
+          title = t('errors.forbiddenTitle')
+          message = t('errors.forbiddenMessage')
           break
         case 404:
-          title = 'Not Found'
-          message = 'The requested resource was not found'
+          title = t('errors.notFoundTitle')
+          message = t('errors.notFoundMessage')
           break
         case 500:
-          title = 'Server Error'
-          message = 'An internal server error occurred'
+          title = t('errors.serverTitle')
+          message = t('errors.serverMessage')
           break
       }
     } else if (error.message) {
@@ -94,7 +99,7 @@ export class ErrorHandler {
 
 
     if (context) {
-      message = `${context}: ${message}`
+      message = /[：:]\s*$/.test(context) ? `${context}${message}` : `${context}: ${message}`
     }
 
     this.notify({
@@ -118,15 +123,15 @@ export class ErrorHandler {
 
 
   handleNetworkError(error: Error, context?: string): void {
-    const title = 'Network Error'
-    let message = 'Please check your internet connection'
+    const title = t('errors.networkTitle')
+    let message = t('errors.networkMessage')
 
     if (error.message) {
       message = error.message
     }
 
     if (context) {
-      message = `${context}: ${message}`
+      message = /[：:]\s*$/.test(context) ? `${context}${message}` : `${context}: ${message}`
     }
 
     this.notify({
@@ -224,14 +229,14 @@ export class ErrorHandler {
       persistent: true,
       actions: [
         {
-          label: 'Cancel',
+          label: t('common.cancel'),
           action: () => {
             if (onCancel) onCancel()
             this.removeNotification(this.generateId())
           }
         },
         {
-          label: 'Confirm',
+          label: t('common.confirmDialog.confirmButton'),
           action: () => {
             onConfirm()
             this.removeNotification(this.generateId())

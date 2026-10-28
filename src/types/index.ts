@@ -46,6 +46,7 @@ export interface Client {
   id: number;
   token: string;
   name: string;
+
   platform?: string;
   deviceUid?: string | null;
   deviceToken?: string | null;

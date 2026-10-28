@@ -203,7 +203,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
 }
 
 .notification-close:hover {
@@ -227,7 +227,7 @@ onUnmounted(() => {
   border: 1px solid var(--color-border-secondary);
   background-color: var(--color-bg-primary);
   color: var(--color-text-secondary);
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
 }
 
 .notification-action:hover {
@@ -247,7 +247,7 @@ onUnmounted(() => {
 
 .notification-enter-active,
 .notification-leave-active {
-  transition: all 0.3s ease;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .notification-enter-from {

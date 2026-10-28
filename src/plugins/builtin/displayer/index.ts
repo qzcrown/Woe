@@ -1,4 +1,4 @@
-import { ExecutablePlugin, PluginContext, PluginInitOptions } from '../types.ts'
+import { ExecutablePlugin, PluginContext, PluginInitOptions } from '../../types.ts'
 
 export function createDisplayer({ id, name }: { id: number; name: string }): ExecutablePlugin {
   let conf: any = {}
@@ -26,7 +26,7 @@ filter:
     },
     async renderDisplay(ctx: PluginContext): Promise<string> {
 
-      const { resolveVariables } = await import('../template.ts')
+      const { resolveVariables } = await import('../../template.ts')
 
 
       const resolved = resolveVariables(conf, ctx) as typeof conf

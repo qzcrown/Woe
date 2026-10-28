@@ -22,7 +22,9 @@
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
-    <AlertDialog
+
+    <ConfirmDialog
+      mode="alert"
       :visible="alertState.visible"
       :title="alertState.options.title"
       :message="alertState.options.message"
@@ -54,7 +56,6 @@ import { wsService, type WsConnectionState } from '@/services/websocket'
 import Notification from '@/components/Notification.vue'
 import ConnectionStatus from '@/components/ConnectionStatus.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import AlertDialog from '@/components/AlertDialog.vue'
 import ElevateConfirmModal from '@/components/ElevateConfirmModal.vue'
 import { useConfirmDialogProvider } from '@/composables/useConfirmDialog'
 import { useAlertProvider } from '@/composables/useAlert'
@@ -151,25 +152,29 @@ onUnmounted(() => {
   --color-border-primary: #e5e7eb;
   --color-border-secondary: #d1d5db;
   --color-border-tertiary: #9ca3af;
-  --color-border-focus: #3b82f6;
+  --color-border-focus: #2b7a99;
 
 
-  --color-primary: #3b82f6;
-  --color-primary-hover: #2563eb;
-  --color-primary-light: rgba(59, 130, 246, 0.1);
+  --color-primary: #155e75;
+  --color-primary-hover: #0f4a5e;
+  --color-primary-light: rgba(21, 94, 117, 0.1);
 
 
   --color-success: #10b981;
   --color-success-hover: #059669;
   --color-success-bg: #d1fae5;
+  --color-success-text: #065f46;
   --color-error: #ef4444;
   --color-error-hover: #dc2626;
   --color-error-bg: #fef2f2;
+  --color-error-text: #b91c1c;
   --color-warning: #f59e0b;
   --color-warning-hover: #d97706;
   --color-warning-bg: #fef3c7;
   --color-info: #3b82f6;
   --color-info-bg: #dbeafe;
+
+  --color-elevated-glow: rgba(217, 119, 6, 0.30);
 
 
   --color-priority-low-bg: #dbeafe;
@@ -191,6 +196,8 @@ onUnmounted(() => {
 
 
   --theme-transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+
+  --transition-interactive: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 
@@ -213,25 +220,29 @@ onUnmounted(() => {
   --color-border-primary: #374151;
   --color-border-secondary: #4b5563;
   --color-border-tertiary: #6b7280;
-  --color-border-focus: #60a5fa;
+  --color-border-focus: #5eb6d0;
 
 
-  --color-primary: #60a5fa;
-  --color-primary-hover: #3b82f6;
-  --color-primary-light: rgba(96, 165, 250, 0.15);
+  --color-primary: #5eb6d0;
+  --color-primary-hover: #49a3bd;
+  --color-primary-light: rgba(94, 182, 208, 0.15);
 
 
   --color-success: #10b981;
   --color-success-hover: #059669;
   --color-success-bg: rgba(16, 185, 129, 0.2);
+  --color-success-text: #6ee7b7;
   --color-error: #ef4444;
   --color-error-hover: #dc2626;
   --color-error-bg: rgba(239, 68, 68, 0.2);
+  --color-error-text: #fca5a5;
   --color-warning: #f59e0b;
   --color-warning-hover: #d97706;
   --color-warning-bg: rgba(245, 158, 11, 0.2);
   --color-info: #60a5fa;
   --color-info-bg: rgba(96, 165, 250, 0.2);
+
+  --color-elevated-glow: rgba(245, 158, 11, 0.26);
 
 
   --color-priority-low-bg: rgba(59, 130, 246, 0.3);
@@ -256,10 +267,19 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   background-color: var(--color-bg-secondary);
   color: var(--color-text-primary);
-  transition: var(--theme-transition);
 }
 
 #app {
   min-height: 100vh;
+}
+
+
+
+
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition: var(--theme-transition) !important;
 }
 </style>

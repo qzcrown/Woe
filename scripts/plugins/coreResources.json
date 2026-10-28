@@ -1,0 +1,60 @@
+{
+  "$comment": "core 资源 fragment：主入口/静态资产/兼容性日期、公共 vars、DB/R2/IMAGES/QUOTA_KV/DO 公共 binding、共享 Secret 声明（只有名称与用途，永不携带值）、DO 迁移、迁移打包 rules 与 scheduled cron。由 scripts/plugins/resourceConfig.mjs 与实际包 fragment 结构化合并；本文件描述归属，不是插件启用名单。生成器不得读取 .env、.dev.vars 或任何 Secret 值。",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-11-28",
+  "workers_dev": false,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "build": {
+    "command": "node scripts/plugins/assertGenerated.mjs"
+  },
+  "vars": {
+    "ENVIRONMENT": "development",
+    "DEFAULT_ADMIN_USER": "admin",
+    "REGISTRATION": false,
+    "PLUGIN_SECRET_KEY_VERSION": "1"
+  },
+  "bindings": [
+    { "name": "DB", "kind": "d1", "logicalResource": "db", "required": true, "shared": true },
+    { "name": "R2", "kind": "r2", "logicalResource": "storage", "required": true, "shared": true },
+    { "name": "IMAGES", "kind": "images", "logicalResource": "images", "required": true, "shared": true },
+    { "name": "QUOTA_KV", "kind": "kv", "logicalResource": "quota-kv", "required": true, "shared": true },
+    {
+      "name": "MESSAGE_STREAM_HUB",
+      "kind": "durable-object",
+      "logicalResource": "message-stream-hub",
+      "required": true,
+      "shared": true,
+      "className": "MessageStreamHubObject"
+    }
+  ],
+  "secrets": [
+    {
+      "name": "DEFAULT_ADMIN_PASSWORD",
+      "required": true,
+      "shared": true,
+      "purpose": "首次运行管理员引导密码；已知弱值会被服务端拒绝，不得写入 vars"
+    },
+    {
+      "name": "PLUGIN_SECRET_MASTER_KEY",
+      "required": true,
+      "shared": true,
+      "purpose": "插件 secret 字段加密主密钥（PLUGIN_SECRET_KEY_VERSION 对应版本）"
+    }
+  ],
+  "durableObjectMigrations": [
+    { "tag": "v1_message_stream_hub", "newSqliteClasses": ["MessageStreamHubObject"] }
+  ],
+  "rules": [
+    { "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }
+  ],
+  "observability": {
+    "logs": { "enabled": true, "head_sampling_rate": 1, "invocation_logs": true, "persist": true },
+    "traces": { "enabled": true, "head_sampling_rate": 1, "persist": true }
+  },
+  "triggers": {
+    "crons": ["0 2 * * *"]
+  }
+}

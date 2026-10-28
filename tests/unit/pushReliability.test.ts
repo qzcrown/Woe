@@ -1,16 +1,37 @@
 import { PushOutboxService } from "../../src/services/push/outboxService";
 import { consumePushQueueBatch } from "../../src/services/push/queueConsumer";
 import { CleanupService } from "../../src/services/cleanupService";
+import { DEFAULT_PUSH_DELIVERY_POLICY } from "../../src/services/push/contracts";
 
 function makeBatchMessage(body: any) {
   return { body, ack: jest.fn(), retry: jest.fn() };
 }
 
 
-function makeResolver(provider: any | null, policy: any = { maxRetries: 3, retryBackoffMs: 2000 }) {
+
+
+
+function makeResolver(
+  provider: any | null,
+  policy: any = { ...DEFAULT_PUSH_DELIVERY_POLICY },
+  resolution?: "ready" | "disabled" | "init-failed" | "unregistered"
+) {
+  const status = resolution ?? (provider ? "ready" : "disabled");
   return {
     get: jest.fn().mockReturnValue(provider),
-    getPolicy: jest.fn().mockReturnValue(policy),
+    getPolicy: jest.fn().mockReturnValue(status === "unregistered" ? null : policy),
+
+
+    resolve: jest.fn().mockImplementation((platform: string) => {
+      const nameMismatch =
+        provider && typeof provider.name === "string" && provider.name !== platform;
+      if (status === "unregistered" || nameMismatch) {
+        return { status: "unregistered", provider: null, policy: null };
+      }
+      return status === "ready"
+        ? { status: "ready", provider, policy }
+        : { status, provider: null, policy };
+    }),
   };
 }
 
@@ -18,40 +39,70 @@ function makeOutboxStub(overrides: any = {}) {
   return {
     getJobById: jest.fn().mockResolvedValue({
 
-      id: 1, userId: 1, messageId: 1, platform: "fixture_a", clientId: null,
+      id: 1, userId: 1, messageId: 1, platform: "huawei", clientId: null,
       payloadJson: JSON.stringify({
-        deviceToken: "t", message: "m", platform: "fixture_a",
+        deviceToken: "t", message: "m", platform: "huawei",
         messageId: 1, appid: 1, date: "2026-09-02T00:00:00Z",
       }),
       status: "pending", attemptCount: 0, nextRetryAt: null,
       lastError: null, createdAt: null, updatedAt: null,
     }),
-    markProcessing: jest.fn().mockResolvedValue(true),
+    markProcessing: jest.fn().mockResolvedValue('lease-1'),
     getPushTargetByClientId: jest.fn().mockResolvedValue({
-      kind: "ready", clientId: 1, platform: "fixture_a",
+      kind: "ready", clientId: 1, platform: "huawei",
       deviceToken: "t", tokenUpdatedAt: "2026-09-24T00:00:00.000Z", tokenStatus: "active",
     }),
     markSuccess: jest.fn(),
-    scheduleRetry: jest.fn(),
-    markDead: jest.fn(),
+    scheduleRetry: jest.fn().mockResolvedValue(true),
+    markDead: jest.fn().mockResolvedValue(true),
     suspend: jest.fn(),
     ...overrides,
   };
 }
 
+function expectClaimedCall(mock: jest.Mock, ...expected: unknown[]) {
+  expect(mock).toHaveBeenCalledWith(...expected, "lease-1");
+}
+
 describe("provider 缺失/占位 → 挂起而非永久死信（queueConsumer）", () => {
-  test("无 provider 时 suspend（回 pending + 未来重试 + 不计尝试次数），不 markDead", async () => {
+  test("disabled（get 为 null、resolve=disabled）时 suspend（回 pending + 未来重试 + 不计尝试次数），不 markDead", async () => {
     const outbox = makeOutboxStub();
     const providers = makeResolver(null);
+    const batch = { messages: [makeBatchMessage({ outboxId: 1, traceId: "t", attempt: 0, enqueueAt: new Date().toISOString() })] } as any;
+    await consumePushQueueBatch(batch, { outbox, providers, queue: { sendBatch: jest.fn() } } as any);
+    expect(providers.resolve).toHaveBeenCalledWith("huawei");
+    expect(outbox.suspend).toHaveBeenCalledWith(
+      1,
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      expect.stringContaining("no provider for platform huawei"),
+      "lease-1"
+    );
+    expect(outbox.markDead).not.toHaveBeenCalled();
+    expect(batch.messages[0].ack).toHaveBeenCalled();
+  });
+
+  test("unregistered（平台未注册，插件包已删除）→ markDead Undeliverable，不挂起", async () => {
+    const outbox = makeOutboxStub();
+    const providers = makeResolver(null, undefined, "unregistered");
+    const batch = { messages: [makeBatchMessage({ outboxId: 1, traceId: "t", attempt: 0, enqueueAt: new Date().toISOString() })] } as any;
+    await consumePushQueueBatch(batch, { outbox, providers, queue: { sendBatch: jest.fn() } } as any);
+    expectClaimedCall(outbox.markDead,1, 0, "Undeliverable: no provider for platform huawei");
+    expect(outbox.suspend).not.toHaveBeenCalled();
+    expect(batch.messages[0].ack).toHaveBeenCalled();
+  });
+
+  test("init-failed（装配失败降级）→ suspend 等待修复，不 markDead", async () => {
+    const outbox = makeOutboxStub();
+    const providers = makeResolver(null, undefined, "init-failed");
     const batch = { messages: [makeBatchMessage({ outboxId: 1, traceId: "t", attempt: 0, enqueueAt: new Date().toISOString() })] } as any;
     await consumePushQueueBatch(batch, { outbox, providers, queue: { sendBatch: jest.fn() } } as any);
     expect(outbox.suspend).toHaveBeenCalledWith(
       1,
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
-      expect.stringContaining("no provider for platform fixture_a")
+      expect.stringContaining("no provider for platform huawei"),
+      "lease-1"
     );
     expect(outbox.markDead).not.toHaveBeenCalled();
-    expect(batch.messages[0].ack).toHaveBeenCalled();
   });
 
   test("FIXTURE_NOT_IMPLEMENTED → markDead（占位 provider 属永久状态，不挂起）", async () => {
@@ -61,7 +112,7 @@ describe("provider 缺失/占位 → 挂起而非永久死信（queueConsumer）
     });
     const batch = { messages: [makeBatchMessage({ outboxId: 1, traceId: "t", attempt: 0, enqueueAt: new Date().toISOString() })] } as any;
     await consumePushQueueBatch(batch, { outbox, providers, queue: { sendBatch: jest.fn() } } as any);
-    expect(outbox.markDead).toHaveBeenCalledWith(1, 1, "FIXTURE_NOT_IMPLEMENTED");
+    expectClaimedCall(outbox.markDead,1, 1, "FIXTURE_NOT_IMPLEMENTED");
     expect(outbox.suspend).not.toHaveBeenCalled();
   });
 
@@ -94,7 +145,7 @@ describe("provider 缺失/占位 → 挂起而非永久死信（queueConsumer）
   test("载荷损坏仍直接 dead（不可恢复，非挂起场景）", async () => {
     const outbox = makeOutboxStub({
       getJobById: jest.fn().mockResolvedValue({
-        id: 1, userId: 1, messageId: 1, platform: "fixture_a", clientId: null,
+        id: 1, userId: 1, messageId: 1, platform: "huawei", clientId: null,
         payloadJson: "not-json", status: "pending", attemptCount: 0,
         nextRetryAt: null, lastError: null, createdAt: null, updatedAt: null,
       }),
@@ -102,7 +153,65 @@ describe("provider 缺失/占位 → 挂起而非永久死信（queueConsumer）
     const providers = makeResolver({ send: jest.fn() });
     const batch = { messages: [makeBatchMessage({ outboxId: 1, traceId: "t", attempt: 0, enqueueAt: new Date().toISOString() })] } as any;
     await consumePushQueueBatch(batch, { outbox, providers, queue: { sendBatch: jest.fn() } } as any);
-    expect(outbox.markDead).toHaveBeenCalledWith(1, 1, "Invalid outbox payload");
+    expectClaimedCall(outbox.markDead,1, 1, "Invalid outbox payload");
+  });
+});
+
+describe("enqueueForUserDevices 共享入队可用性检查", () => {
+  function makeEnqueueDrizzle() {
+    return {
+      select: jest.fn(() => ({
+        from: jest.fn(() => ({
+          where: jest.fn().mockResolvedValue([{ id: 1, deviceToken: "token-1" }])
+        }))
+      })),
+      all: jest.fn().mockResolvedValue([{ id: 11 }])
+    };
+  }
+
+  const input = {
+    userId: 7,
+    messageId: 100,
+    appid: 42,
+    date: "2026-10-19T12:00:00.000Z",
+    platform: "huawei",
+    title: "hello",
+    message: "world"
+  };
+
+  test("ready → accepted，走既有幂等插入", async () => {
+    const drizzle = makeEnqueueDrizzle();
+    const providers = makeResolver({ name: "huawei", send: jest.fn() });
+    const result = await new PushOutboxService(drizzle as any).enqueueForUserDevices(input, providers as any);
+
+    expect(result).toEqual({ status: "accepted", count: 1, outboxIds: [11] });
+    expect(drizzle.all).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["disabled", "disabled"],
+    ["init-failed", "init-failed"],
+    ["unregistered", "unregistered"]
+  ])("%s → unavailable 且不查询设备、不插入行", async (_name, status) => {
+    const drizzle = makeEnqueueDrizzle();
+    const providers = makeResolver(null, undefined, status as never);
+    const result = await new PushOutboxService(drizzle as any).enqueueForUserDevices(input, providers as any);
+
+    expect(result).toEqual({ status: "unavailable", reason: status });
+    expect(drizzle.select).not.toHaveBeenCalled();
+    expect(drizzle.all).not.toHaveBeenCalled();
+  });
+
+  test("web/unknown 等未注册平台不产生厂商 outbox（unregistered 语义）", async () => {
+    const drizzle = makeEnqueueDrizzle();
+    const providers = makeResolver({ name: "huawei", send: jest.fn() });
+    const result = await new PushOutboxService(drizzle as any).enqueueForUserDevices(
+      { ...input, platform: "web" },
+      providers as any
+    );
+
+    expect(result).toEqual({ status: "unavailable", reason: "unregistered" });
+    expect(drizzle.select).not.toHaveBeenCalled();
   });
 });
 

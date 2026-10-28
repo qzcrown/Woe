@@ -25,13 +25,9 @@ import type {
   PluginConfigFailure,
   PluginHostContext,
   PluginTask,
-  PluginTaskDefinition
+  PluginTaskBehavior
 } from '../../jobs/types.ts'
-import {
-  isAuthTokenDeclared,
-  resolveWebhookerConfig,
-  WEBHOOKER_MODULE_PATH
-} from './config.ts'
+import { isAuthTokenDeclared, resolveWebhookerConfig } from './config.ts'
 import { createWebhookerTask } from './task.ts'
 import type { WebhookerPayload } from './types.ts'
 
@@ -210,17 +206,6 @@ async function renderWebhookerSnapshot(
 
 
 
-export const WEBHOOKER_TASK_METADATA = {
-  modulePath: WEBHOOKER_MODULE_PATH,
-  supportedSubjectTypes: ['message'],
-  secretFields: ['authToken'],
-  manualTrigger: false
-} as const
-
-
-
-
-
 async function validateWebhookerConfig({
   config,
   host
@@ -257,12 +242,11 @@ function configFailureTask(): PluginTask {
 
 export function createWebhookerTaskDefinition(
   outbound: OutboundPolicyOptions = {}
-): PluginTaskDefinition {
+): PluginTaskBehavior {
 
   const policy: OutboundPolicyOptions = { ...outbound, allowQuery: true }
 
   return {
-    ...WEBHOOKER_TASK_METADATA,
     outbound: policy,
 
     validateConfig: validateWebhookerConfig,
@@ -278,7 +262,7 @@ export function createWebhookerTaskDefinition(
 }
 
 
-export function createWebhookerStaticDefinition(): PluginTaskDefinition {
+export function createWebhookerStaticDefinition(): PluginTaskBehavior {
   return createWebhookerTaskDefinition()
 }
 
@@ -299,7 +283,7 @@ function webhookerEnvFlag(value: string | undefined): boolean {
 
 
 
-export function createWebhookerDefinition(env: Env): PluginTaskDefinition {
+export function createWebhookerDefinition(env: Env): PluginTaskBehavior {
 
 
   const relaxations: OutboundPolicyOptions = {}

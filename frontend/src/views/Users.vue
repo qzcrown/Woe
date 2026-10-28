@@ -6,7 +6,11 @@
         <button @click="showCreateModal = true" class="create-btn">{{ $t('users.add') }}</button>
       </div>
 
-      <div v-if="loading" class="loading">{{ $t('users.loadingUsers') }}</div>
+      <div v-if="loading" class="loading-container">
+        <LoadingSpinner :text="$t('users.loadingUsers')" />
+      </div>
+
+      <div v-else-if="listError" class="error-message">{{ listError }}</div>
 
       <div v-else class="users-list">
         <div v-for="user in users" :key="user.id" class="user-card">
@@ -64,7 +68,7 @@
                 <div v-if="getUserDetails(user.id)?.clients?.length" class="detail-list">
                   <div v-for="client in getUserDetails(user.id)?.clients" :key="client.id" class="detail-item">
                     <span class="item-name">{{ client.name }}</span>
-                    <span class="item-desc">{{ client.lastUsed ? $t('users.lastUsed') + ': ' + formatDate(client.lastUsed) : $t('users.neverUsed') }}</span>
+                    <span class="item-desc">{{ client.lastUsed ? $t('users.lastUsedAt', { time: formatDate(client.lastUsed) }) : $t('users.neverUsed') }}</span>
                   </div>
                 </div>
                 <div v-else class="empty-detail">{{ $t('users.noClients') }}</div>
@@ -89,6 +93,13 @@
                       <span class="item-name">{{ plugin.name }}</span>
                       <span :class="['item-status', plugin.enabled ? 'enabled' : 'disabled']">
                         {{ plugin.enabled ? $t('common.enabled') : $t('common.disabled') }}
+                      </span>
+
+                      <span
+                        v-if="plugin.availability === 'unavailable'"
+                        class="item-status unavailable"
+                      >
+                        {{ $t('plugins.unavailable') }}
                       </span>
                     </div>
                     <div class="item-actions">
@@ -142,80 +153,31 @@
               </div>
 
 
-              <div v-if="canManageQuotas(authStore.user) && getQuota(user.id)" class="detail-section ai-quota-section">
-                <h4>{{ $t('users.aiQuota.title') }}</h4>
-                <div class="ai-quota-grid">
-                  <div class="ai-quota-item">
-                    <span class="ai-quota-label">{{ $t('users.aiQuota.defaultLimit') }}</span>
-                    <span class="ai-quota-value">{{ getQuota(user.id)?.defaultLimit }}</span>
-                  </div>
-                  <div class="ai-quota-item">
-                    <span class="ai-quota-label">{{ $t('users.aiQuota.overrideLimit') }}</span>
-                    <span class="ai-quota-value">
-                      {{ getQuota(user.id)?.overrideLimit === null
-                        ? $t('users.aiQuota.inherited')
-                        : getQuota(user.id)?.overrideLimit }}
-                    </span>
-                  </div>
-                  <div class="ai-quota-item">
-                    <span class="ai-quota-label">{{ $t('users.aiQuota.effectiveLimit') }}</span>
-                    <span class="ai-quota-value">
-                      {{ isQuotaDisabled(getQuota(user.id)?.effectiveLimit ?? 0)
-                        ? $t('users.aiQuota.disabled')
-                        : getQuota(user.id)?.effectiveLimit }}
-                    </span>
-                  </div>
-                  <div class="ai-quota-item">
-                    <span class="ai-quota-label">{{ $t('users.aiQuota.usageToday') }}</span>
-                    <span class="ai-quota-value">{{ getQuota(user.id)?.usageToday }}</span>
-                  </div>
-                  <div class="ai-quota-item">
-                    <span class="ai-quota-label">{{ $t('users.aiQuota.source') }}</span>
-                    <span class="ai-quota-value">{{ $t(quotaSourceKey(getQuota(user.id)?.source ?? 'default')) }}</span>
-                  </div>
-                </div>
-                <div class="ai-quota-actions">
-                  <input
-                    class="ai-quota-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    :value="quotaInputs[user.id] ?? ''"
-                    :placeholder="$t('users.aiQuota.limitPlaceholder')"
-                    @input="updateQuotaInput(user.id, $event)"
+              <template v-if="canManageQuotas(authStore.user) && adminPanels.length > 0">
+                <div
+                  v-for="panel in adminPanels"
+                  :key="`${panel.modulePath}-${pluginInstancesRevision}`"
+                  class="detail-section"
+                >
+                  <component
+                    :is="panel.component"
+                    :user="user"
+                    :namespace="panel.namespace"
+                    :host="adminUiHost"
                   />
-                  <button
-                    type="button"
-                    class="ai-quota-save-btn"
-                    :disabled="quotaSaving.has(user.id)"
-                    @click="saveQuota(user.id)"
-                  >
-                    {{ quotaSaving.has(user.id) ? $t('common.saving') : $t('users.aiQuota.set') }}
-                  </button>
-                  <button
-                    type="button"
-                    class="ai-quota-clear-btn"
-                    :disabled="quotaSaving.has(user.id)"
-                    @click="clearQuota(user.id)"
-                  >
-                    {{ $t('users.aiQuota.clear') }}
-                  </button>
                 </div>
-                <p class="ai-quota-hint">{{ $t('users.aiQuota.zeroHint') }}</p>
-                <p v-if="quotaErrors[user.id]" class="ai-quota-error">{{ quotaErrors[user.id] }}</p>
-              </div>
+              </template>
             </div>
           </div>
         </div>
       </div>
 
-      <div v-if="quotaLoadError" class="ai-quota-load-error">
-        {{ quotaLoadError }}
-      </div>
-
-      <div v-if="!loading && users.length === 0" class="empty-state">
-        {{ $t('users.noUsers') }}
-      </div>
+      <EmptyState
+        v-if="!loading && !listError && users.length === 0"
+        type="users"
+        :title="$t('users.noUsers')"
+        :description="$t('users.emptyDescription')"
+      />
 
       <CreateUserModal
         v-if="showCreateModal"
@@ -236,21 +198,22 @@
           if (selectedUserId) {
             await loadUserDetails(selectedUserId)
           }
-          // 新增实例可能新增/移除「已启用 AI 任务插件」，配额区块要跟着刷新
-          await loadAiQuotas()
+          // 实例增删会改变各管理面板可见的数据（如配额行），bump 触发面板重载
+          bumpPluginInstancesRevision()
           showCreatePluginModal = false
         }"
       />
       <EditPluginModal
+        v-if="editingPlugin"
         :show="showEditPluginModal && editingPlugin !== null"
-        :plugin="editingPlugin!"
+        :plugin="editingPlugin"
         @close="showEditPluginModal = false"
         @updated="async () => {
           if (selectedUserId) {
             await loadUserDetails(selectedUserId)
           }
-          // 编辑可能启用/停用 AI 任务插件 实例，配额区块要跟着刷新
-          await loadAiQuotas()
+          // 实例启用状态变化会改变各管理面板可见的数据，bump 触发面板重载
+          bumpPluginInstancesRevision()
           showEditPluginModal = false
         }"
       />
@@ -259,24 +222,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from '@lucide/vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import Layout from '@/components/Layout.vue'
 import CreateUserModal from '@/components/CreateUserModal.vue'
 import EditUserModal from '@/components/EditUserModal.vue'
 import CreatePluginModal from '@/components/CreatePluginModal.vue'
 import EditPluginModal from '@/components/EditPluginModal.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
-import { userApi, pluginApi, adminQuotaApi } from '@/services/api'
+import { userApi, pluginApi } from '@/services/api'
 import { withElevationRetry } from '@/services/auth'
 import { isElevationCancelled } from '@/composables/useElevatedAction'
 import { showSuccess, showError } from '@/utils/errorHandler'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { formatDate } from '@/utils/datetime'
-import { canManageQuotas, isQuotaDisabled, parseQuotaLimitInput, quotaInputErrorKey, quotaSourceKey } from '@/utils/quota'
+import { canManageQuotas } from '@/utils/quota'
+import { getPluginAdminPanels } from '@/plugins/catalog'
+import { createPluginUiHost } from '@/plugins/host'
 import { useAuthStore } from '@/stores/auth'
-import type { User, Application, Client, Plugin, AvailablePlugin, AiQuotaUser, ApiError } from '@/types'
+import type { User, Application, Client, Plugin, AvailablePlugin } from '@/types'
+import type { PluginUiHost } from '@/plugins/types'
 
 const { t } = useI18n()
 const { confirm: confirmDialog } = useConfirmDialog()
@@ -294,7 +262,8 @@ const availablePlugins = ref<AvailablePlugin[]>([])
 
 const loadAvailablePlugins = async () => {
   try {
-    const res = await pluginApi.getAvailablePlugins()
+    const res = await pluginApi.getAvailablePlugins(adminUiHost.requestOptions)
+    if (!adminUiHost.isCurrent()) return
     availablePlugins.value = res.data
   } catch (err) {
     console.error('Failed to load available plugins:', err)
@@ -303,6 +272,7 @@ const loadAvailablePlugins = async () => {
 
 const users = ref<User[]>([])
 const loading = ref(true)
+const listError = ref<string | null>(null)
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const editingUser = ref<User | null>(null)
@@ -318,102 +288,22 @@ const showEditPluginModal = ref(false)
 const editingPlugin = ref<Plugin | null>(null)
 
 
-const aiQuotas = reactive(new Map<number, AiQuotaUser>())
-const quotaInputs = reactive<Record<number, string>>({})
-const quotaSaving = ref<Set<number>>(new Set())
-const quotaErrors = reactive<Record<number, string>>({})
-const quotaLoadError = ref<string | null>(null)
+const adminPanels = getPluginAdminPanels()
+const adminUiHost: PluginUiHost = createPluginUiHost({ ownerId: authStore.user?.id ?? 0 })
+adminUiHost.signal.addEventListener('abort', () => {
+  showCreatePluginModal.value = false; showEditPluginModal.value = false; editingPlugin.value = null
+  availablePlugins.value = []; userDetailsCache.clear(); userPermissions.clear()
+  expandedUsers.value = new Set(); loadingDetails.value = new Set(); savingPermissions.value = new Set()
+  deletingUserPlugin.value = null
+}, { once: true })
 
-const getQuota = (userId: number): AiQuotaUser | undefined => aiQuotas.get(userId)
-
-const loadAiQuotas = async () => {
-  if (!canManageQuotas(authStore.user)) return
-  try {
-    const response = await adminQuotaApi.list()
-    aiQuotas.clear()
-    for (const quota of response.data?.users ?? []) {
-      aiQuotas.set(quota.userId, quota)
-      quotaInputs[quota.userId] = quota.overrideLimit === null ? '' : String(quota.overrideLimit)
-    }
-    quotaLoadError.value = null
-  } catch (err) {
-    console.error('Failed to load AI quotas:', err)
-    quotaLoadError.value = t('users.aiQuota.loadError')
-  }
-}
-
-const updateQuotaInput = (userId: number, event: Event) => {
-  quotaInputs[userId] = (event.target as HTMLInputElement).value
-  delete quotaErrors[userId]
-}
-
-const setQuotaSaving = (userId: number, saving: boolean) => {
-  const next = new Set(quotaSaving.value)
-  if (saving) next.add(userId)
-  else next.delete(userId)
-  quotaSaving.value = next
-}
-
-const quotaErrorText = (err: unknown): string => {
-  const status = (err as ApiError | undefined)?.statusCode
-  return status === 503 ? t('users.aiQuota.unavailable') : t('users.aiQuota.saveError')
-}
-
-
-
-
-
-const applyQuotaOverride = (userId: number, limit: number | null) => {
-  const current = aiQuotas.get(userId)
-  if (!current) return
-  aiQuotas.set(userId, {
-    ...current,
-    overrideLimit: limit,
-    effectiveLimit: limit === null ? current.defaultLimit : limit,
-    source: limit === null ? 'default' : 'override'
-  })
-}
-
-const saveQuota = async (userId: number) => {
-  const parsed = parseQuotaLimitInput(quotaInputs[userId] ?? '')
-  if (parsed.status !== 'ok') {
-
-    quotaErrors[userId] = t(quotaInputErrorKey(parsed.status))
-    return
-  }
-
-  setQuotaSaving(userId, true)
-  delete quotaErrors[userId]
-  try {
-    await adminQuotaApi.setLimit(userId, parsed.limit)
-    applyQuotaOverride(userId, parsed.limit)
-    quotaInputs[userId] = String(parsed.limit)
-    showSuccess(t('users.aiQuota.saveSuccess'))
-  } catch (err) {
-    console.error('Failed to update AI quota:', err)
-    quotaErrors[userId] = quotaErrorText(err)
-  } finally {
-    setQuotaSaving(userId, false)
-  }
-}
-
-const clearQuota = async (userId: number) => {
-  setQuotaSaving(userId, true)
-  delete quotaErrors[userId]
-  try {
-    await adminQuotaApi.clearLimit(userId)
-    applyQuotaOverride(userId, null)
-    quotaInputs[userId] = ''
-    showSuccess(t('users.aiQuota.saveSuccess'))
-  } catch (err) {
-    console.error('Failed to clear AI quota:', err)
-    quotaErrors[userId] = quotaErrorText(err)
-  } finally {
-    setQuotaSaving(userId, false)
-  }
+const pluginInstancesRevision = ref(0)
+const bumpPluginInstancesRevision = () => {
+  pluginInstancesRevision.value += 1
 }
 
 const loadUsers = async () => {
+  listError.value = null
   try {
 
     const res = await withElevationRetry(() => userApi.getUsers())
@@ -421,6 +311,7 @@ const loadUsers = async () => {
   } catch (err) {
     if (isElevationCancelled(err)) return
     console.error('Failed to load users:', err)
+    listError.value = t('users.loadError')
   } finally {
     loading.value = false
   }
@@ -492,6 +383,7 @@ const toggleUserDisabled = async (user: User) => {
 }
 
 const toggleUserDetails = async (userId: number) => {
+  if (!adminUiHost.isCurrent()) return
   if (expandedUsers.value.has(userId)) {
     expandedUsers.value.delete(userId)
     expandedUsers.value = new Set(expandedUsers.value)
@@ -506,17 +398,19 @@ const toggleUserDetails = async (userId: number) => {
 }
 
 const loadUserDetails = async (userId: number) => {
+  if (!adminUiHost.isCurrent()) return
   loadingDetails.value.add(userId)
   loadingDetails.value = new Set(loadingDetails.value)
 
   try {
     const [appsRes, clientsRes, pluginsRes, permissionsRes] = await Promise.all([
-      userApi.getUserApplications(userId),
-      userApi.getUserClients(userId),
-      userApi.getUserPlugins(userId),
-      userApi.getPluginPermissions(userId)
+      userApi.getUserApplications(userId, adminUiHost.requestOptions),
+      userApi.getUserClients(userId, adminUiHost.requestOptions),
+      userApi.getUserPlugins(userId, adminUiHost.requestOptions),
+      userApi.getPluginPermissions(userId, adminUiHost.requestOptions)
     ])
 
+    if (!adminUiHost.isCurrent()) return
     userDetailsCache.set(userId, {
       applications: appsRes.data || [],
       clients: clientsRes.data || [],
@@ -526,6 +420,7 @@ const loadUserDetails = async (userId: number) => {
 
     userPermissions.set(userId, new Set(permissionsRes.data || []))
   } catch (err) {
+    if (!adminUiHost.isCurrent()) return
     console.error('Failed to load user details:', err)
     userDetailsCache.set(userId, {
       applications: [],
@@ -534,12 +429,14 @@ const loadUserDetails = async (userId: number) => {
     })
     userPermissions.set(userId, new Set())
   } finally {
+    if (!adminUiHost.isCurrent()) return
     loadingDetails.value.delete(userId)
     loadingDetails.value = new Set(loadingDetails.value)
   }
 }
 
 const togglePluginPermission = (userId: number, pluginPath: string, event: Event) => {
+  if (!adminUiHost.isCurrent()) return
   const checkbox = event.target as HTMLInputElement
   const permissions = userPermissions.get(userId) || new Set()
 
@@ -553,17 +450,19 @@ const togglePluginPermission = (userId: number, pluginPath: string, event: Event
 }
 
 const savePluginPermissions = async (userId: number) => {
+  if (!adminUiHost.isCurrent() || savingPermissions.value.has(userId)) return
   savingPermissions.value.add(userId)
   savingPermissions.value = new Set(savingPermissions.value)
 
   try {
     const permissions = userPermissions.get(userId) || new Set()
-    await userApi.updatePluginPermissions(userId, Array.from(permissions))
-    showSuccess(t('users.permissionsSaved'))
+    await userApi.updatePluginPermissions(userId, Array.from(permissions), adminUiHost.requestOptions)
+    if (!adminUiHost.isCurrent()) return
+    adminUiHost.notify.success(t('users.permissionsSaved'))
   } catch (err: any) {
-    console.error('Failed to save plugin permissions:', err)
-    showError(err, t('users.permissionsSaveError'))
+    adminUiHost.notify.error(err, t('users.permissionsSaveError'))
   } finally {
+    if (!adminUiHost.isCurrent()) return
     savingPermissions.value.delete(userId)
     savingPermissions.value = new Set(savingPermissions.value)
   }
@@ -575,10 +474,12 @@ const getUserDetails = (userId: number): UserDetails | undefined => {
 
 const openCreatePluginModal = (userId: number) => {
   selectedUserId.value = userId
+  if (!adminUiHost.isCurrent()) return
   showCreatePluginModal.value = true
 }
 
 const deleteUserPlugin = async (userId: number, pluginId: number, pluginName: string) => {
+  if (!adminUiHost.isCurrent()) return
   const confirmed = await confirmDialog({
     title: t('common.confirmDialog.title'),
     message: t('plugins.deleteConfirm', { name: pluginName }),
@@ -587,25 +488,27 @@ const deleteUserPlugin = async (userId: number, pluginId: number, pluginName: st
     type: 'danger'
   })
 
-  if (!confirmed) {
-    return
-  }
+  if (!confirmed || !adminUiHost.isCurrent()) return
 
   deletingUserPlugin.value = { userId, pluginId }
   try {
-    await pluginApi.deletePlugin(pluginId)
+    if (!adminUiHost.isCurrent()) return
+    await pluginApi.deletePlugin(pluginId, adminUiHost.requestOptions)
+    if (!adminUiHost.isCurrent()) return
     showSuccess(t('plugins.deleteSuccess', { name: pluginName }))
     await loadUserDetails(userId)
+    if (!adminUiHost.isCurrent()) return
 
-    await loadAiQuotas()
+    bumpPluginInstancesRevision()
   } catch (err: any) {
-    showError(err, t('plugins.deleteError'))
+    adminUiHost.notify.error(err, t('plugins.deleteError'))
   } finally {
-    deletingUserPlugin.value = null
+    if (adminUiHost.isCurrent()) deletingUserPlugin.value = null
   }
 }
 
 const openEditPluginModal = (plugin: Plugin) => {
+  if (!adminUiHost.isCurrent()) return
   editingPlugin.value = plugin
   showEditPluginModal.value = true
 }
@@ -613,7 +516,10 @@ const openEditPluginModal = (plugin: Plugin) => {
 onMounted(async () => {
   await loadUsers()
   await loadAvailablePlugins()
-  await loadAiQuotas()
+})
+
+onUnmounted(() => {
+  adminUiHost.dispose()
 })
 </script>
 
@@ -644,14 +550,14 @@ onMounted(async () => {
   border: none;
   border-radius: 0.375rem;
   cursor: pointer;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .create-btn:hover {
   background-color: var(--color-success-hover);
 }
 
-.loading, .empty-state {
+.loading-container {
   text-align: center;
   color: var(--color-text-tertiary);
   padding: 3rem;
@@ -726,17 +632,17 @@ onMounted(async () => {
   align-items: center;
   gap: 0.375rem;
   padding: 0.375rem 0.75rem;
-  background-color: #6366f1;
+  background-color: var(--color-primary);
   color: var(--color-text-inverse);
   border: none;
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .toggle-btn:hover {
-  background-color: #4f46e5;
+  background-color: var(--color-primary-hover);
 }
 
 .edit-btn {
@@ -750,7 +656,7 @@ onMounted(async () => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .edit-btn:hover {
@@ -768,7 +674,7 @@ onMounted(async () => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .delete-btn:hover {
@@ -855,13 +761,19 @@ onMounted(async () => {
 }
 
 .item-status.enabled {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: var(--color-success-bg);
+  color: var(--color-success-text);
 }
 
 .item-status.disabled {
-  background-color: #fee2e2;
-  color: #991b1b;
+  background-color: var(--color-error-bg);
+  color: var(--color-priority-emergency-text);
+}
+
+
+.item-status.unavailable {
+  background-color: var(--color-warning-bg, rgba(255, 193, 7, 0.15));
+  color: var(--color-warning-text, #b45309);
 }
 
 .empty-detail {
@@ -890,7 +802,7 @@ onMounted(async () => {
   background-color: var(--color-bg-hover);
   border-radius: 0.375rem;
   cursor: pointer;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .plugin-permission-item:hover {
@@ -916,7 +828,7 @@ onMounted(async () => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .save-permissions-btn:hover:not(:disabled) {
@@ -951,7 +863,7 @@ onMounted(async () => {
   border-radius: 0.25rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .add-plugin-small-btn:hover {
@@ -969,7 +881,7 @@ onMounted(async () => {
   border-radius: 0.25rem;
   cursor: pointer;
   font-size: 0.75rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .edit-plugin-small-btn:hover {
@@ -981,13 +893,13 @@ onMounted(async () => {
   align-items: center;
   gap: 0.375rem;
   padding: 0.25rem 0.5rem;
-  background-color: #f87171;
+  background-color: var(--color-error);
   color: var(--color-text-inverse);
   border: none;
   border-radius: 0.25rem;
   cursor: pointer;
   font-size: 0.75rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .delete-plugin-small-btn:hover:not(:disabled) {
@@ -1006,7 +918,7 @@ onMounted(async () => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 .disable-btn.enabled {
   background-color: var(--color-success);
@@ -1032,107 +944,6 @@ onMounted(async () => {
   outline-offset: 2px;
 }
 
-
-.ai-quota-section {
-  border-top: 1px solid var(--color-border-primary);
-  padding-top: 1rem;
-}
-
-.ai-quota-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.75rem;
-  margin: 0.75rem 0;
-}
-
-.ai-quota-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.5rem 0.625rem;
-  background: var(--color-bg-hover);
-  border-radius: 0.375rem;
-}
-
-.ai-quota-label {
-  font-size: 0.75rem;
-  color: var(--color-text-tertiary);
-}
-
-.ai-quota-value {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.ai-quota-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.ai-quota-input {
-  width: 9rem;
-  padding: 0.375rem 0.5rem;
-  border: 1px solid var(--color-border-secondary);
-  border-radius: 0.375rem;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  font-size: 0.8125rem;
-}
-
-.ai-quota-save-btn,
-.ai-quota-clear-btn {
-  padding: 0.375rem 0.75rem;
-  border: none;
-  border-radius: 0.375rem;
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  transition: var(--theme-transition);
-}
-
-.ai-quota-save-btn {
-  background-color: var(--color-primary);
-  color: var(--color-text-inverse);
-}
-
-.ai-quota-save-btn:hover:not(:disabled) {
-  background-color: var(--color-primary-hover);
-}
-
-.ai-quota-clear-btn {
-  background-color: var(--color-bg-hover);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border-secondary);
-}
-
-.ai-quota-save-btn:disabled,
-.ai-quota-clear-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.ai-quota-hint {
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
-  color: var(--color-text-tertiary);
-}
-
-.ai-quota-error,
-.ai-quota-load-error {
-  margin: 0.5rem 0 0;
-  font-size: 0.8125rem;
-  color: var(--color-error);
-}
-
-.ai-quota-load-error {
-  padding: 0.75rem 1rem;
-  background: var(--color-bg-hover);
-  border-radius: 0.375rem;
-}
-
 @media (max-width: 768px) {
   .page-header {
     flex-direction: column;
@@ -1153,5 +964,14 @@ onMounted(async () => {
   .details-content {
     grid-template-columns: 1fr;
   }
+}
+
+.error-message {
+  background-color: var(--color-error-bg);
+  color: var(--color-error);
+  padding: 1rem;
+  border-radius: 0.375rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-error);
 }
 </style>

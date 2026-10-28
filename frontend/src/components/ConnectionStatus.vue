@@ -50,7 +50,7 @@ const emit = defineEmits<{ (e: 'reconnect'): void }>()
   bottom: 2rem;
   right: 2rem;
   z-index: 1000;
-  transition: all 0.3s ease;
+  transition: var(--transition-interactive);
 }
 
 .status-indicator {

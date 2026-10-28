@@ -52,6 +52,7 @@ client.post("/", async (c) => {
   }
   const parsed = await parseJsonBody<{
     name: string;
+
     platform?: string;
     deviceUid?: string;
     deviceToken?: string;

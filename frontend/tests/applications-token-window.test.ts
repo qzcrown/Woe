@@ -285,7 +285,7 @@ describe('初始窗口与观察器绑定', () => {
   it('loading 期间无卡片;列表返回后渲染 10 卡,真实哨兵被 observe,详情仅前 10 id', async () => {
     useImmediateDetails()
     const wrapper = mountPage()
-    expect(wrapper.find('.loading').exists()).toBe(true)
+    expect(wrapper.find('.loading-container').exists()).toBe(true)
     expect(cards(wrapper).length).toBe(0)
 
     await flush()
@@ -527,7 +527,7 @@ describe('会话变更撞上在途列表', () => {
 
     const wrapper = mountPage()
     await flush()
-    expect(wrapper.find('.loading').exists()).toBe(true)
+    expect(wrapper.find('.loading-container').exists()).toBe(true)
     expect(wrapper.find('.empty-state').exists()).toBe(false)
 
 
@@ -540,13 +540,13 @@ describe('会话变更撞上在途列表', () => {
 
     expect(wrapper.find('.empty-state').exists()).toBe(false)
 
-    expect(wrapper.find('.loading').exists()).toBe(true)
+    expect(wrapper.find('.loading-container').exists()).toBe(true)
     expect(mocks.getApplications).toHaveBeenCalledTimes(2)
 
 
     secondList.resolve({ data: makeApps(23) })
     await flush()
-    expect(wrapper.find('.loading').exists()).toBe(false)
+    expect(wrapper.find('.loading-container').exists()).toBe(false)
     expect(cards(wrapper).length).toBe(10)
     expect(requestedDetailIds()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 

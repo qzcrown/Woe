@@ -53,10 +53,8 @@ import BaseModal from './BaseModal.vue'
 import { applicationApi } from '@/services/api'
 import { authService, clientTokenStorageKey } from '@/services/auth'
 import { showError } from '@/utils/errorHandler'
+import { useCopyFeedback } from '@/composables/useCopyFeedback'
 import { derivePublicForm, isEnhancedTokenForm } from '@/utils/enhancedToken'
-
-
-const COPY_FEEDBACK_MS = 1500
 
 const { t } = useI18n()
 
@@ -69,24 +67,14 @@ const submitting = ref(false)
 const error = ref('')
 
 const createdToken = ref('')
-const copied = ref(false)
 
 
 let disposed = false
-
-let copySequence = 0
-let copyTimer: ReturnType<typeof setTimeout> | null = null
-
-const clearCopyFeedback = (): void => {
-
-
-  copySequence += 1
-  if (copyTimer) {
-    clearTimeout(copyTimer)
-    copyTimer = null
-  }
-  copied.value = false
-}
+const { copied, copyText, clearCopyFeedback } = useCopyFeedback({
+  isCurrent: () => !disposed,
+  errorTitle: () => t('applications.copyTokenError'),
+  clearOnError: true
+})
 
 const onClose = () => {
 
@@ -96,28 +84,8 @@ const onClose = () => {
 }
 
 
-
-
-
-
-const copyCreatedToken = async () => {
-  const token = createdToken.value
-  if (!token) return
-  const seq = ++copySequence
-  try {
-    await navigator.clipboard.writeText(token)
-  } catch (err) {
-    if (disposed || copySequence !== seq) return
-    showError(err as Error, t('applications.copyTokenError'))
-    return
-  }
-  if (disposed || copySequence !== seq) return
-  if (copyTimer) clearTimeout(copyTimer)
-  copied.value = true
-  copyTimer = setTimeout(() => {
-    copyTimer = null
-    copied.value = false
-  }, COPY_FEEDBACK_MS)
+const copyCreatedToken = (): void => {
+  if (createdToken.value) void copyText(createdToken.value)
 }
 
 
@@ -203,7 +171,7 @@ input, textarea {
   font-size: 0.875rem;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 input:focus, textarea:focus {
   outline: none;
@@ -218,7 +186,7 @@ textarea { min-height: 80px; resize: vertical; }
   cursor: pointer;
   background: var(--color-bg-active);
   color: var(--color-text-secondary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 .btn.primary { background: var(--color-success); color: var(--color-text-inverse); }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import AlertDialog from '@/components/AlertDialog.vue'
 import i18n from '@/locales'
 
 const mountWithI18n = (component: Parameters<typeof mount>[0], props: Record<string, unknown>) =>
@@ -44,16 +43,21 @@ describe('ConfirmDialog 收敛到 BaseModal 基座', () => {
   })
 })
 
-describe('AlertDialog 收敛到 BaseModal 基座', () => {
+describe('Alert 模式收敛到 ConfirmDialog（单按钮，遮罩点击=确认）', () => {
   it('渲染基座容器，缺省标题走类型默认 i18n，确认与遮罩点击都发 confirm', async () => {
-    const wrapper = mountWithI18n(AlertDialog, { visible: true, message: '已保存' })
+    const wrapper = mountWithI18n(ConfirmDialog, { visible: true, mode: 'alert', message: '已保存' })
     expect(wrapper.find('.modal-container').exists()).toBe(true)
     expect(wrapper.find('.close-btn').exists()).toBe(false)
-    expect(wrapper.find('.alert-dialog-title').text()).toBe('Info')
+    expect(wrapper.find('.confirm-dialog-title').text()).toBe('Info')
 
     await wrapper.find('.btn-primary').trigger('click')
     expect(wrapper.emitted('confirm')).toHaveLength(1)
     await wrapper.find('.modal-backdrop').trigger('click')
     expect(wrapper.emitted('confirm')).toHaveLength(2)
+  })
+
+  it('不渲染取消按钮', async () => {
+    const wrapper = mountWithI18n(ConfirmDialog, { visible: true, mode: 'alert', message: 'x' })
+    expect(wrapper.find('.btn-secondary').exists()).toBe(false)
   })
 })

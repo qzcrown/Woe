@@ -12,17 +12,17 @@ import { SUSPEND_RETRY_AT_DELAY_MS } from '../../src/services/push/contracts'
 function makeOutboxStub(jobs: any[]) {
   return {
     getDueJobs: jest.fn().mockResolvedValue(jobs),
-    markProcessing: jest.fn().mockResolvedValue(true),
+    markProcessing: jest.fn().mockResolvedValue('lease-1'),
     getPushTargetByClientId: jest.fn().mockResolvedValue({
       kind: 'ready',
       clientId: 1,
-      platform: 'fixture_a',
+      platform: 'huawei',
       deviceToken: 'token-1',
       tokenUpdatedAt: '2026-09-24T00:00:00.000Z',
       tokenStatus: 'active'
     }),
     markSuccess: jest.fn().mockResolvedValue(undefined),
-    scheduleRetry: jest.fn().mockResolvedValue(undefined),
+    scheduleRetry: jest.fn().mockResolvedValue(true),
     markDead: jest.fn().mockResolvedValue(undefined),
     suspend: jest.fn().mockResolvedValue(undefined)
   }
@@ -32,7 +32,12 @@ function makeOutboxStub(jobs: any[]) {
 function makeResolver(provider: any | null) {
   return {
     get: jest.fn().mockReturnValue(provider),
-    getPolicy: jest.fn().mockReturnValue({ maxRetries: 3, retryBackoffMs: 2000 })
+    getPolicy: jest.fn().mockReturnValue({ maxRetries: 3, retryBackoffMs: 2000 }),
+    resolve: jest.fn().mockImplementation((platform: string) =>
+      provider
+        ? { status: 'ready' as const, provider, policy: { maxRetries: 3, retryBackoffMs: 2000 } }
+        : { status: 'disabled' as const, provider: null, policy: { maxRetries: 3, retryBackoffMs: 2000 } }
+    )
   }
 }
 
@@ -41,11 +46,11 @@ function makeValidJob(id: number) {
     id,
     userId: 7,
     messageId: 100 + id,
-    platform: 'fixture_a',
+    platform: 'huawei',
     clientId: 1,
     payloadJson: JSON.stringify({
       userId: 7,
-      platform: 'fixture_a',
+      platform: 'huawei',
       messageId: 100 + id,
       appid: 42,
       date: '2026-02-28T11:59:00.000Z',
@@ -63,11 +68,11 @@ describe('PushDispatcher', () => {
         id: 1,
         userId: 7,
         messageId: 100,
-        platform: 'fixture_a',
+        platform: 'huawei',
         clientId: 1,
         payloadJson: JSON.stringify({
           userId: 7,
-          platform: 'fixture_a',
+          platform: 'huawei',
           messageId: 100,
           appid: 42,
           date: '2026-02-28T11:59:00.000Z',
@@ -79,7 +84,7 @@ describe('PushDispatcher', () => {
     ])
 
     const providers = makeResolver({
-      name: 'fixture_a',
+      name: 'huawei',
       send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
     })
 
@@ -100,11 +105,11 @@ describe('PushDispatcher', () => {
         id: 2,
         userId: 7,
         messageId: 101,
-        platform: 'fixture_a',
+        platform: 'huawei',
         clientId: 1,
         payloadJson: JSON.stringify({
           userId: 7,
-          platform: 'fixture_a',
+          platform: 'huawei',
           messageId: 101,
           appid: 42,
           date: '2026-02-28T11:59:00.000Z',
@@ -116,7 +121,7 @@ describe('PushDispatcher', () => {
     ])
 
     const providers = makeResolver({
-      name: 'fixture_a',
+      name: 'huawei',
       send: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
     })
 
@@ -131,7 +136,7 @@ describe('PushDispatcher', () => {
 
   test('dispatcher marks legacy payloads dead when deeplink contract fields are missing', async () => {
     const provider = {
-      name: 'fixture_a',
+      name: 'huawei',
       send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
     }
 
@@ -140,11 +145,11 @@ describe('PushDispatcher', () => {
         id: 3,
         userId: 7,
         messageId: 102,
-        platform: 'fixture_a',
+        platform: 'huawei',
 
         payloadJson: JSON.stringify({
           userId: 7,
-          platform: 'fixture_a',
+          platform: 'huawei',
           deviceToken: 'token-1',
           title: 'hello',
           message: 'world'
@@ -158,7 +163,7 @@ describe('PushDispatcher', () => {
     await dispatcher.runOnce()
 
     expect(provider.send).not.toHaveBeenCalled()
-    expect(outbox.markDead).toHaveBeenCalledWith(3, 1, 'Invalid outbox payload')
+    expect(outbox.markDead).toHaveBeenCalledWith(3, 1, 'Invalid outbox payload', 'lease-1')
   })
 
   test('dispatcher suspends job when provider is missing instead of dead-lettering', async () => {
@@ -175,7 +180,8 @@ describe('PushDispatcher', () => {
     expect(outbox.suspend).toHaveBeenCalledWith(
       4,
       expect.any(String),
-      expect.stringContaining('no provider for platform fixture_a')
+      expect.stringContaining('no provider for platform huawei'),
+      'lease-1'
     )
     expect(outbox.markDead).not.toHaveBeenCalled()
 
@@ -187,7 +193,7 @@ describe('PushDispatcher', () => {
   test('dispatcher suspends job on provider suspend classification', async () => {
     const outbox = makeOutboxStub([makeValidJob(5)])
     const providers = makeResolver({
-      name: 'fixture_a',
+      name: 'huawei',
       send: jest.fn().mockResolvedValue({ ok: false, retriable: false, failureKind: 'suspend', errorCode: 'FIXTURE_CONFIG_MISSING', errorMessage: 'config missing' })
     })
 
@@ -199,7 +205,8 @@ describe('PushDispatcher', () => {
     expect(outbox.suspend).toHaveBeenCalledWith(
       5,
       expect.any(String),
-      expect.stringContaining('config missing')
+      expect.stringContaining('config missing'),
+      'lease-1'
     )
     expect(outbox.markDead).not.toHaveBeenCalled()
   })
@@ -207,7 +214,7 @@ describe('PushDispatcher', () => {
   test('dispatcher dead-letters FIXTURE_NOT_IMPLEMENTED placeholder instead of suspending', async () => {
     const outbox = makeOutboxStub([makeValidJob(6)])
     const providers = makeResolver({
-      name: 'fixture_b',
+      name: 'apple',
       send: jest.fn().mockResolvedValue({ ok: false, retriable: false, errorCode: 'FIXTURE_NOT_IMPLEMENTED' })
     })
 
@@ -215,7 +222,7 @@ describe('PushDispatcher', () => {
 
     await dispatcher.runOnce()
 
-    expect(outbox.markDead).toHaveBeenCalledWith(6, 1, 'FIXTURE_NOT_IMPLEMENTED')
+    expect(outbox.markDead).toHaveBeenCalledWith(6, 1, 'FIXTURE_NOT_IMPLEMENTED', 'lease-1')
     expect(outbox.suspend).not.toHaveBeenCalled()
   })
 
@@ -225,7 +232,7 @@ describe('PushDispatcher', () => {
       .mockResolvedValueOnce([makeValidJob(7), makeValidJob(8)])
       .mockResolvedValueOnce([makeValidJob(9)])
     const provider = {
-      name: 'fixture_a',
+      name: 'huawei',
       send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
     }
 
@@ -244,7 +251,7 @@ describe('PushDispatcher', () => {
     const outbox = makeOutboxStub([])
     outbox.getDueJobs.mockImplementation(() => Promise.resolve([makeValidJob(10), makeValidJob(11)]))
     const provider = {
-      name: 'fixture_a',
+      name: 'huawei',
       send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
     }
 

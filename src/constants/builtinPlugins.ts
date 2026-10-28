@@ -1,4 +1,4 @@
-
+import { moduleDescriptors } from '../generated/plugins/catalog.ts'
 
 export interface BuiltinPluginInfo {
   modulePath: string
@@ -9,22 +9,11 @@ export interface BuiltinPluginInfo {
   website: string
 }
 
-
-export const BUILTIN_PLUGINS: BuiltinPluginInfo[] = [
-  {
-    modulePath: 'builtin/webhooker',
-    name: 'Webhooker',
-    capabilities: ['webhooker', 'messenger'],
-    author: 'qzcrown',
-    license: 'GPL-3.0-only',
-    website: 'https://github.com/qzcrown/woe'
-  },
-  {
-    modulePath: 'builtin/displayer',
-    name: 'Displayer',
-    capabilities: ['displayer'],
-    author: 'qzcrown',
-    license: 'GPL-3.0-only',
-    website: 'https://github.com/qzcrown/woe'
-  }
-]
+export const BUILTIN_PLUGINS: BuiltinPluginInfo[] = moduleDescriptors.map(descriptor => ({
+  modulePath: descriptor.modulePath,
+  name: descriptor.name,
+  capabilities: [...descriptor.capabilities],
+  author: descriptor.author,
+  license: descriptor.license,
+  website: descriptor.website
+}))

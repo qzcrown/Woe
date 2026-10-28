@@ -1,4 +1,27 @@
 import type { PluginEventOutcome, PluginJobsAccess } from './jobs/types.ts'
+import type { PushPlatform } from '../services/push/contracts.ts'
+import type { EnqueueForUserDevicesResult } from '../services/push/outboxService.ts'
+
+
+
+
+
+
+export type PluginAvailability = 'available' | 'unavailable'
+
+
+export interface UnavailablePluginIdentity {
+  id: number
+  userId: number
+  name: string
+  modulePath: string
+}
+
+
+export interface PluginLoadSnapshot {
+  plugins: ExecutablePlugin[]
+  unavailable: UnavailablePluginIdentity[]
+}
 
 export interface PluginContext {
   userId: number
@@ -22,23 +45,26 @@ export interface PluginInitOptions {
   config: Record<string, any> | undefined
 
   jobs?: PluginJobsAccess
+
+
+
+
+
+
+
   pushOutbox?: {
     enqueueForUserDevices(input: {
       userId: number
       messageId: number
       appid: number
       date: string
-      platform: string
+
+      platform: PushPlatform
       title?: string
       message: string
       priority?: number
       extras?: Record<string, any>
-    }): Promise<{
-
-      count: number
-
-      outboxIds: number[]
-    }>
+    }): Promise<EnqueueForUserDevicesResult>
   }
 }
 

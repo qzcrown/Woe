@@ -83,7 +83,7 @@ describe('QuotaService: 限额解析', () => {
   })
 
   test(`无 system_state、无 KV 覆盖时默认 ${DEFAULT_DAILY_LIMIT}`, async () => {
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toEqual({
       status: 'ok',
@@ -95,7 +95,7 @@ describe('QuotaService: 限额解析', () => {
 
   test('system_state 缺键 -> 默认 1000', async () => {
     seedSystemState(testDb, 'other_key', '5')
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     const result = await service.check('ai', 7, pluginId)
     expect(result).toMatchObject({ status: 'ok', limit: DEFAULT_DAILY_LIMIT, source: 'default' })
@@ -103,7 +103,7 @@ describe('QuotaService: 限额解析', () => {
 
   test('system_state 覆盖默认限额', async () => {
     seedSystemState(testDb, 'ai_user_daily_limit', '42')
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toEqual({
       status: 'ok',
@@ -116,7 +116,7 @@ describe('QuotaService: 限额解析', () => {
   test('KV 覆盖优先于 system_state', async () => {
     seedSystemState(testDb, 'ai_user_daily_limit', '42')
     const { kv } = createMemoryKv({ initial: { 'ai:limit:7': '5' } })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toEqual({
       status: 'ok',
@@ -128,7 +128,7 @@ describe('QuotaService: 限额解析', () => {
 
   test('覆盖 "0" -> limit 0 -> exceeded（0 是合法禁用值）', async () => {
     const { kv } = createMemoryKv({ initial: { 'ai:limit:7': '0' } })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toEqual({
       status: 'exceeded',
@@ -140,7 +140,7 @@ describe('QuotaService: 限额解析', () => {
 
   test('删除覆盖后回落默认', async () => {
     const { kv, store } = createMemoryKv({ initial: { 'ai:limit:7': '5' } })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(service.setUserOverride('ai', 7, null)).resolves.toEqual({ status: 'ok' })
     expect(store.has('ai:limit:7')).toBe(false)
@@ -153,7 +153,7 @@ describe('QuotaService: 限额解析', () => {
 
   test.each(['-1', 'abc', '1.5', '', ' 5x'])('非法覆盖值 %p -> invalid-limit（不回落默认）', async (raw) => {
     const { kv } = createMemoryKv({ initial: { 'ai:limit:7': raw } })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toEqual({ status: 'invalid-limit' })
     await expect(service.describeUserQuota('ai', 7, pluginId)).resolves.toEqual({
@@ -164,7 +164,7 @@ describe('QuotaService: 限额解析', () => {
 
   test.each(['-1', 'abc', '1.5'])('非法 system_state 默认值 %p -> invalid-limit', async (raw) => {
     seedSystemState(testDb, 'ai_user_daily_limit', raw)
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toEqual({ status: 'invalid-limit' })
     await expect(service.describeUserQuota('ai', 7, pluginId)).resolves.toEqual({
@@ -175,7 +175,7 @@ describe('QuotaService: 限额解析', () => {
 
   test('KV 读取抛错 -> read-failed', async () => {
     const { kv } = createMemoryKv({ failGet: true })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toEqual({ status: 'read-failed' })
     await expect(service.describeUserQuota('ai', 7, pluginId)).resolves.toEqual({
@@ -185,12 +185,12 @@ describe('QuotaService: 限额解析', () => {
   })
 
   test('usage 读取失败（插件行不存在）-> read-failed', async () => {
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
     await expect(service.check('ai', 7, 999999)).resolves.toEqual({ status: 'read-failed' })
   })
 
   test('不支持的 namespace 视为配置错误（抛错）', async () => {
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
     await expect(service.check('billing', 7, pluginId)).rejects.toThrow(/namespace/)
     await expect(service.consume('billing', 7, pluginId, true)).rejects.toThrow(/namespace/)
   })
@@ -226,7 +226,7 @@ describe('QuotaService: 用量与 UTC 日切换', () => {
       .set({ usageDay: '2020-01-01', usageCount: 42 })
       .where(eq(pluginConfigs.id, pluginId))
       .run()
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toMatchObject({ status: 'ok', used: 0 })
     expect(usageRow()).toMatchObject({ usageDay: '2020-01-01', usageCount: 42 })
@@ -238,7 +238,7 @@ describe('QuotaService: 用量与 UTC 日切换', () => {
       .set({ usageDay: utcToday(), usageCount: 3 })
       .where(eq(pluginConfigs.id, pluginId))
       .run()
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toMatchObject({ used: 3 })
   })
@@ -289,7 +289,7 @@ describe('QuotaService: 用量与 UTC 日切换', () => {
 
   test('used == limit -> exceeded；used < limit -> ok', async () => {
     const { kv } = createMemoryKv({ initial: { 'ai:limit:7': '3' } })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     testDb.db
       .update(pluginConfigs)
@@ -327,7 +327,7 @@ describe('QuotaService: consume 软限额语义', () => {
   })
 
   test('quotaConsumed=false -> skipped 且不写库', async () => {
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.consume('ai', 7, pluginId, false)).resolves.toEqual({ status: 'skipped' })
     const [row] = testDb.db.select().from(pluginConfigs).where(eq(pluginConfigs.id, pluginId)).all()
@@ -336,7 +336,7 @@ describe('QuotaService: consume 软限额语义', () => {
   })
 
   test('quotaConsumed=true -> 写入当前日 +1', async () => {
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.consume('ai', 7, pluginId, true)).resolves.toEqual({ status: 'consumed' })
     const [row] = testDb.db.select().from(pluginConfigs).where(eq(pluginConfigs.id, pluginId)).all()
@@ -345,7 +345,7 @@ describe('QuotaService: consume 软限额语义', () => {
   })
 
   test('usage 写失败 -> write-failed（不抛错、不影响调用方）', async () => {
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
     await expect(service.consume('ai', 7, 999999, true)).resolves.toEqual({
       status: 'write-failed'
     })
@@ -353,7 +353,7 @@ describe('QuotaService: consume 软限额语义', () => {
 
   test('超出软限额时 consume 仍成功（配额是 advisory）', async () => {
     const { kv } = createMemoryKv({ initial: { 'ai:limit:7': '0' } })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(service.check('ai', 7, pluginId)).resolves.toMatchObject({ status: 'exceeded' })
     await expect(service.consume('ai', 7, pluginId, true)).resolves.toEqual({ status: 'consumed' })
@@ -377,7 +377,7 @@ describe('QuotaService: describeUserQuota / setUserOverride', () => {
 
   test('describeUserQuota 返回 default/override/effective/usage 与 source', async () => {
     const { kv } = createMemoryKv({ initial: { 'ai:limit:7': '5' } })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(service.describeUserQuota('ai', 7, pluginId)).resolves.toEqual({
       ok: true,
@@ -392,7 +392,7 @@ describe('QuotaService: describeUserQuota / setUserOverride', () => {
   })
 
   test('describeUserQuota 无覆盖时为 null，source=default', async () => {
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.describeUserQuota('ai', 7, pluginId)).resolves.toMatchObject({
       ok: true,
@@ -408,7 +408,7 @@ describe('QuotaService: describeUserQuota / setUserOverride', () => {
       .set({ usageDay: utcToday(), usageCount: 3 })
       .where(eq(pluginConfigs.id, pluginId))
       .run()
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.describeUserQuota('ai', 7, pluginId)).resolves.toMatchObject({
       ok: true,
@@ -420,7 +420,7 @@ describe('QuotaService: describeUserQuota / setUserOverride', () => {
 
   test('setUserOverride 写入 KV；0 与正整数字符串化', async () => {
     const { kv, store } = createMemoryKv()
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(service.setUserOverride('ai', 7, 0)).resolves.toEqual({ status: 'ok' })
     expect(store.get('ai:limit:7')).toBe('0')
@@ -433,7 +433,7 @@ describe('QuotaService: describeUserQuota / setUserOverride', () => {
     'setUserOverride 非法值 %p -> invalid',
     async (limit) => {
       const { kv, store } = createMemoryKv()
-      const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+      const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
       await expect(service.setUserOverride('ai', 7, limit)).resolves.toEqual({ status: 'invalid' })
       expect(store.size).toBe(0)
@@ -442,7 +442,7 @@ describe('QuotaService: describeUserQuota / setUserOverride', () => {
 
   test('setUserOverride KV 写失败 -> write-failed', async () => {
     const { kv } = createMemoryKv({ failPut: true })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(service.setUserOverride('ai', 7, 10)).resolves.toEqual({
       status: 'write-failed'
@@ -466,7 +466,7 @@ describe('QuotaService: describeNamespaceQuotas 批量读取', () => {
 
   test('默认限额只读一次；逐行返回 override/usage/usageToday', async () => {
     const { kv } = createMemoryKv({ initial: { 'ai:limit:8': '5' } })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
     const readDefaultLimit = jest.spyOn(service as any, 'readDefaultLimit')
     const today = utcToday()
 
@@ -513,7 +513,7 @@ describe('QuotaService: describeNamespaceQuotas 批量读取', () => {
       async put(): Promise<void> {},
       async delete(): Promise<void> {}
     }
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(
       service.describeNamespaceQuotas('ai', [
@@ -525,7 +525,7 @@ describe('QuotaService: describeNamespaceQuotas 批量读取', () => {
 
   test('任一行非法覆盖值 -> 整体 invalid-limit', async () => {
     const { kv } = createMemoryKv({ initial: { 'ai:limit:8': 'abc' } })
-    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }))
+    const service = new QuotaService(drizzle, quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }), ['ai'])
 
     await expect(
       service.describeNamespaceQuotas('ai', [
@@ -536,7 +536,7 @@ describe('QuotaService: describeNamespaceQuotas 批量读取', () => {
   })
 
   test('system_state 读取失败 -> read-failed', async () => {
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
     testDb.sqlite.exec('DROP TABLE system_state')
 
     await expect(
@@ -547,11 +547,65 @@ describe('QuotaService: describeNamespaceQuotas 批量读取', () => {
   })
 
   test('空实例列表 -> ok:true 与空 rows', async () => {
-    const service = new QuotaService(drizzle, quotaEnv())
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai'])
 
     await expect(service.describeNamespaceQuotas('ai', [])).resolves.toEqual({
       ok: true,
       rows: []
     })
+  })
+})
+
+describe('QuotaService: 声明化 namespace 集合', () => {
+  let testDb: TestDb
+  let drizzle: ReturnType<typeof asDrizzle>
+  let pluginId: number
+
+  beforeEach(() => {
+    testDb = createPluginJobsTestDb()
+    drizzle = asDrizzle(testDb)
+    pluginId = seedPlugin(testDb).id
+    seedSystemState(testDb, 'vision_user_daily_limit', '7')
+  })
+
+  test('新增 namespace 由调用方声明：vision 与 ai 各自独立的默认/覆盖键', async () => {
+    const { kv, store } = createMemoryKv({ initial: { 'vision:limit:7': '2' } })
+    const service = new QuotaService(
+      drizzle,
+      quotaEnv({ QUOTA_KV: kv as unknown as KVNamespace }),
+      ['ai', 'vision']
+    )
+
+    await expect(service.check('vision', 7, pluginId)).resolves.toMatchObject({
+      status: 'ok',
+      limit: 2,
+      source: 'override'
+    })
+    await expect(service.setUserOverride('vision', 8, 5)).resolves.toEqual({ status: 'ok' })
+    expect(store.get('vision:limit:8')).toBe('5')
+
+
+    await expect(service.check('ai', 7, pluginId)).resolves.toMatchObject({
+      status: 'ok',
+      limit: DEFAULT_DAILY_LIMIT
+    })
+  })
+
+  test('未声明的 namespace 仍拒绝（billing 不在 [ai, vision]）', async () => {
+    const service = new QuotaService(drizzle, quotaEnv(), ['ai', 'vision'])
+
+    await expect(service.check('billing', 7, pluginId)).rejects.toThrow(/namespace/)
+    await expect(service.consume('billing', 7, pluginId, true)).rejects.toThrow(/namespace/)
+    await expect(service.setUserOverride('billing', 7, 5)).rejects.toThrow(/namespace/)
+  })
+
+  test('零 namespace 集合拒绝一切 namespace（fail-closed，不回落全局默认）', async () => {
+    const service = new QuotaService(drizzle, quotaEnv(), [])
+
+    await expect(service.check('ai', 7, pluginId)).rejects.toThrow(/namespace/)
+    await expect(service.consume('ai', 7, pluginId, true)).rejects.toThrow(/namespace/)
+    await expect(service.describeUserQuota('ai', 7, pluginId)).rejects.toThrow(/namespace/)
+    await expect(service.describeNamespaceQuotas('ai', [])).rejects.toThrow(/namespace/)
+    await expect(service.setUserOverride('ai', 7, 5)).rejects.toThrow(/namespace/)
   })
 })

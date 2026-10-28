@@ -59,7 +59,7 @@ function seedOutbox(
   const base: typeof pushOutbox.$inferInsert = {
     userId: 7,
     messageId,
-    platform: 'fixture_a',
+    platform: 'web',
     clientId: 11,
     payloadJson: '{"title":"t"}',
     status: 'pending',
@@ -164,7 +164,7 @@ describe('ClientHandlers logoutClient（三元快照 + 原子 batch）', () => {
 
     const res = await handlers.createClient(7, {
       name: 'Pixel Relogin',
-      platform: 'fixture_a',
+      platform: 'web',
       deviceUid: 'device-abc',
       deviceToken: 'new-push-token'
     })

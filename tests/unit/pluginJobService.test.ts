@@ -775,7 +775,7 @@ describe('PluginJobService.enqueue availability checks', () => {
     expect(testDb.db.select().from(pluginJobs).all()).toHaveLength(0)
   })
 
-  test('message ownership is checked before plugin availability (design §7.1 order)', async () => {
+  test('message ownership is checked before plugin availability', async () => {
     const testDb = createPluginJobsTestDb()
 
     const message = seedMessage(testDb, 8)
@@ -864,7 +864,7 @@ describe('PluginJobService.enqueue availability checks', () => {
     })
   })
 
-  test('unknown task module is 409 config', async () => {
+  test('unknown task module is 409 plugin-unavailable', async () => {
     const testDb = createPluginJobsTestDb()
     seedUser(testDb, 7)
     const message = seedMessage(testDb, 7)
@@ -873,7 +873,7 @@ describe('PluginJobService.enqueue availability checks', () => {
     const { quota } = createFakeQuota()
     const service = createService(asDrizzle(testDb), fake.queue, quota)
 
-    const result = await service.enqueue({
+    const eventResult = await service.enqueue({
       source: 'event',
       userId: 7,
       pluginId: plugin.id,
@@ -881,7 +881,29 @@ describe('PluginJobService.enqueue availability checks', () => {
       subjectId: message.id
     })
 
-    expect(result).toMatchObject({ status: 'skipped', code: 'config', httpStatus: 409 })
+
+    expect(eventResult).toMatchObject({
+      status: 'skipped',
+      code: 'plugin-unavailable',
+      httpStatus: 409
+    })
+    expect(testDb.db.select().from(pluginJobs).all()).toHaveLength(0)
+    expect(fake.sent).not.toHaveBeenCalled()
+
+
+    const manualResult = await service.enqueue({
+      source: 'manual',
+      userId: 7,
+      pluginId: plugin.id,
+      subjectType: 'message',
+      subjectId: message.id
+    })
+    expect(manualResult).toMatchObject({
+      status: 'skipped',
+      code: 'plugin-unavailable',
+      httpStatus: 409
+    })
+    expect(testDb.db.select().from(pluginJobs).all()).toHaveLength(0)
   })
 
   test('missing message subject is 404 not-found', async () => {
@@ -1319,7 +1341,7 @@ describe('code to httpStatus mapping', () => {
   })
 })
 
-describe('PluginJobService.enqueue manual trigger gating (design §5.4)', () => {
+describe('PluginJobService.enqueue manual trigger gating', () => {
   test('manual 对 manualTrigger=false 的任务立即 409：不建 job、不查配额、不调 validateConfig', async () => {
     const testDb = createPluginJobsTestDb()
     seedUser(testDb, 7)

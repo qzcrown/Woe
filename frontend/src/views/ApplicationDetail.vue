@@ -44,7 +44,7 @@
               <div class="meta-item">
                 <span class="meta-label">{{ t('applicationDetail.defaultPriority') }}</span>
                 <span class="meta-value priority-badge" :class="`priority-${getPriorityLevel(application.defaultPriority ?? 0)}`">
-                  {{ getPriorityLabel(application.defaultPriority ?? 0) }}
+                  {{ getPriorityLabel(application.defaultPriority ?? 0, t) }}
                 </span>
               </div>
 
@@ -146,7 +146,7 @@
                 </div>
                 <p class="message-content">{{ message.message }}</p>
                 <div class="message-priority" :class="`priority-${getPriorityLevel(message.priority ?? 1)}`">
-                  {{ getPriorityLabel(message.priority) }}
+                  {{ getPriorityLabel(message.priority, t) }}
                 </div>
               </div>
 
@@ -177,7 +177,7 @@
 </template>
 
 <script setup lang="ts">
-import { getPriorityLevel } from '@/utils/priority'
+import { getPriorityLevel, getPriorityLabel } from '@/utils/priority'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -190,6 +190,7 @@ import EditApplicationModal from '@/components/EditApplicationModal.vue'
 import { applicationApi } from '@/services/api'
 import { authService, clientTokenStorageKey, parseAppTokenStorageKey } from '@/services/auth'
 import { showSuccess, showError } from '@/utils/errorHandler'
+import { useCopyFeedback } from '@/composables/useCopyFeedback'
 import { formatRelativeTime, formatDateTime, formatDate } from '@/utils/datetime'
 import { resolveAppTokenState, type AppTokenState } from '@/utils/appToken'
 import { isAppTokenRequestCurrent, type AppTokenRequestContext } from '@/utils/appTokenRequestGuard'
@@ -204,8 +205,6 @@ const { t } = useI18n()
 const { confirm: confirmDialog } = useConfirmDialog()
 const { withElevation } = useElevatedAction()
 
-
-const COPY_FEEDBACK_MS = 1500
 
 const TOKEN_MASK = '••••••••'
 
@@ -272,10 +271,6 @@ let silentReloadPending = false
 const regeneratingAppId = ref<number | null>(null)
 
 
-let copySequence = 0
-let copyTimer: ReturnType<typeof setTimeout> | null = null
-const copied = ref(false)
-
 const isRegenerating = computed(() => regeneratingAppId.value === appId.value)
 
 
@@ -285,49 +280,19 @@ const isRegenerating = computed(() => regeneratingAppId.value === appId.value)
 
 
 
-const getPriorityLabel = (priority?: number) => {
-  if (priority === undefined || priority === null) return t('common.priorityNormal')
-  const labels = [t('common.priorityLow'), t('common.priorityNormal'), t('common.priorityHigh'), t('common.priorityEmergency')]
-  return labels[getPriorityLevel(priority ?? 1)] || t('common.priorityNormal')
-}
 
 
 
-const clearCopyFeedback = (): void => {
+const { copied, copyText, clearCopyFeedback } = useCopyFeedback({
+  isCurrent: () => !disposed,
+  errorTitle: () => t('applications.copyTokenError'),
+  clearOnError: true
+})
 
-
-  copySequence += 1
-  if (copyTimer) {
-    clearTimeout(copyTimer)
-    copyTimer = null
-  }
-  copied.value = false
-}
-
-
-
-
-
-
-const copyToken = async (): Promise<void> => {
+const copyToken = (): void => {
   const state = tokenState.value
   if (state.kind !== 'legacy' && state.kind !== 'valid') return
-  const token = state.token
-  const seq = ++copySequence
-  try {
-    await navigator.clipboard.writeText(token)
-  } catch (err) {
-    if (disposed || copySequence !== seq) return
-    showError(err as Error, t('applications.copyTokenError'))
-    return
-  }
-  if (disposed || copySequence !== seq) return
-  if (copyTimer) clearTimeout(copyTimer)
-  copied.value = true
-  copyTimer = setTimeout(() => {
-    copyTimer = null
-    copied.value = false
-  }, COPY_FEEDBACK_MS)
+  void copyText(state.token)
 }
 
 const toggleTokenVisibility = () => {
@@ -991,8 +956,8 @@ onBeforeUnmount(() => {
 }
 
 .error-message {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-priority-emergency-bg);
   border-radius: 0.5rem;
   padding: 1.5rem;
   text-align: center;
@@ -1001,12 +966,12 @@ onBeforeUnmount(() => {
 }
 
 .error-message h3 {
-  color: #b91c1c;
+  color: var(--color-error-text);
   margin-bottom: 0.5rem;
 }
 
 .error-message p {
-  color: #991b1b;
+  color: var(--color-priority-emergency-text);
   margin-bottom: 1rem;
 }
 
@@ -1100,8 +1065,8 @@ onBeforeUnmount(() => {
 
 .priority-0 { background: var(--color-info-bg); color: var(--color-info); }
 .priority-1 { background: var(--color-bg-hover); color: var(--color-text-secondary); }
-.priority-2 { background: #fef3c7; color: #92400e; }
-.priority-3 { background: #fecaca; color: #991b1b; }
+.priority-2 { background: var(--color-warning-bg); color: var(--color-priority-high-text); }
+.priority-3 { background: var(--color-priority-emergency-bg); color: var(--color-priority-emergency-text); }
 
 .app-actions {
   display: flex;
@@ -1119,7 +1084,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 500;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .regenerate-btn {
@@ -1198,11 +1163,11 @@ onBeforeUnmount(() => {
   font-weight: 500;
   padding: 0.5rem 1rem;
   border-radius: 0.375rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .view-all-btn:hover {
-  background-color: #f0f9ff;
+  background-color: var(--color-primary-light);
 }
 
 .token-container {
@@ -1243,7 +1208,7 @@ onBeforeUnmount(() => {
   border-radius: 0.375rem;
   padding: 0.375rem;
   cursor: pointer;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .token-copy-btn:hover {
@@ -1342,7 +1307,7 @@ onBeforeUnmount(() => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .load-more-btn:hover:not(:disabled) {

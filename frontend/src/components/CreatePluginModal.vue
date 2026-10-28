@@ -1,14 +1,8 @@
 <template>
-  <div v-if="show" class="modal-overlay" @click="close">
-    <div class="modal-content" @click.stop>
-      <div class="modal-header">
-        <h2>{{ $t('plugins.addPlugin') }}</h2>
-        <button type="button" @click="close" class="close-btn"
-          :title="$t('common.close')" :aria-label="$t('common.close')">
-          <X :size="16" aria-hidden="true" />
-        </button>
-      </div>
-      <div class="modal-body">
+  <BaseModal v-if="show && active" max-width="500px" @close="close">
+    <template #title>
+      <h2 class="title">{{ $t('plugins.addPlugin') }}</h2>
+    </template>
         <div class="form-group">
           <label for="plugin-type">{{ $t('plugins.type') }}</label>
           <select id="plugin-type" v-model="selectedType" :disabled="loadingTypes">
@@ -27,25 +21,23 @@
             @keyup.enter="submit"
           />
         </div>
-      </div>
-      <div class="modal-footer">
-        <button @click="close" class="cancel-btn">{{ $t('common.cancel') }}</button>
-        <button @click="submit" :disabled="!name || creating" class="submit-btn">
-          <LoadingSpinner v-if="creating" size="small" variant="dots" />
-          <span v-else>{{ $t('common.create') }}</span>
-        </button>
-      </div>
-    </div>
-  </div>
+    <template #footer>
+      <button @click="close" class="cancel-btn">{{ $t('common.cancel') }}</button>
+      <button @click="submit" :disabled="!name || creating" class="submit-btn">
+        <LoadingSpinner v-if="creating" size="small" variant="dots" />
+        <span v-else>{{ $t('common.create') }}</span>
+      </button>
+    </template>
+  </BaseModal>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { X } from '@lucide/vue'
 import LoadingSpinner from './LoadingSpinner.vue'
+import BaseModal from './BaseModal.vue'
 import { pluginApi } from '@/services/api'
-import { showSuccess, showError } from '@/utils/errorHandler'
+import { createPluginUiHost, type PluginUiHost } from '@/plugins/host'
 
 const props = defineProps<{
   show: boolean
@@ -66,115 +58,40 @@ const selectedType = ref('')
 const name = ref('')
 const creating = ref(false)
 
-
-const loadAvailableTypes = async () => {
-  loadingTypes.value = true
+const active = ref(false)
+let host: PluginUiHost | undefined
+const reset = () => { active.value = false; name.value = ''; selectedType.value = ''; availableTypes.value = []; creating.value = false; loadingTypes.value = false }
+watch(() => [props.show, props.targetUserId] as const, async ([open, owner]) => {
+  host?.dispose(); reset()
+  if (!open) return
+  const current = host = createPluginUiHost({ ownerId: owner ?? 0 })
+  active.value = true; loadingTypes.value = true
+  current.signal.addEventListener('abort', reset, { once: true })
   try {
-    const res = await pluginApi.getAvailablePlugins()
-    availableTypes.value = res.data.map(p => ({
-      value: p.modulePath,
-      label: p.name
-    }))
-
-    if (availableTypes.value.length > 0 && !selectedType.value) {
-      selectedType.value = availableTypes.value[0].value
-    }
-  } catch (err) {
-    console.error('Failed to load available plugins:', err)
-  } finally {
-    loadingTypes.value = false
-  }
-}
-
-onMounted(() => {
-  loadAvailableTypes()
-})
-
-const close = () => {
-  name.value = ''
-  emit('close')
-}
-
+    const res = await pluginApi.getAvailablePlugins(current.requestOptions)
+    if (!current.isCurrent()) return
+    availableTypes.value = res.data.map(p => ({ value: p.modulePath, label: p.name }))
+    selectedType.value = availableTypes.value[0]?.value ?? ''
+  } catch (err) { current.notify.error(err, t('plugins.loadError')) }
+  finally { if (current.isCurrent()) loadingTypes.value = false }
+}, { immediate: true, flush: 'sync' })
+onUnmounted(() => host?.dispose())
+const close = () => { host?.dispose(); reset(); emit('close') }
 const submit = async () => {
-  if (!name.value) return
-
+  const current = host; const owner = props.targetUserId
+  if (!current?.isCurrent() || !name.value || creating.value) return
   creating.value = true
   try {
-    await pluginApi.createPlugin(selectedType.value, name.value, props.targetUserId)
-    showSuccess(t('plugins.createSuccess'))
-    emit('created')
-    close()
-  } catch (err: any) {
-    showError(err, t('plugins.createError'))
-  } finally {
-    creating.value = false
-  }
+    await pluginApi.createPlugin(selectedType.value, name.value, owner, current.requestOptions)
+    if (!current.isCurrent()) return
+    current.notify.success(t('plugins.createSuccess')); emit('created'); close()
+  } catch (err) { current.notify.error(err, t('plugins.createError')) }
+  finally { if (current.isCurrent()) creating.value = false }
 }
 </script>
 
 <style scoped>
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--color-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: var(--color-bg-primary);
-  border-radius: 0.75rem;
-  width: 90%;
-  max-width: 500px;
-  box-shadow: var(--shadow-lg);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--color-border-primary);
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-tertiary);
-  padding: 0;
-  width: 2rem;
-  height: 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--theme-transition);
-}
-
-.close-btn:hover {
-  color: var(--color-text-primary);
-}
-
-.close-btn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.modal-body {
-  padding: 1.5rem;
-}
+.title { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-primary); }
 
 .form-group {
   display: flex;
@@ -197,7 +114,7 @@ const submit = async () => {
   font-size: 0.875rem;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .form-group input:focus,
@@ -223,7 +140,7 @@ const submit = async () => {
   cursor: pointer;
   font-weight: 500;
   color: var(--color-text-secondary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .cancel-btn:hover {
@@ -241,7 +158,7 @@ const submit = async () => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-weight: 500;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .submit-btn:hover:not(:disabled) {

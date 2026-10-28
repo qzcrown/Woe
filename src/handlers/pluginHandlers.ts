@@ -13,20 +13,26 @@ import { BUILTIN_PLUGINS } from "../constants/builtinPlugins.ts";
 import { ImageCompressionError, ImageCompressionService } from "../services/imageCompressionService.ts";
 import { randomTokenString, TOKEN_RANDOM_LENGTH } from "../middleware/auth.ts";
 import { normalizeMediaPath } from "../utils/mediaPath.ts";
-import { getPluginSecretFields } from "../plugins/jobs/registry.ts";
 import {
-  WEBHOOKER_MODULE_PATH,
-  resolveWebhookerConfig
-} from "../plugins/builtin/webhooker/config.ts";
+  getPluginConfigParser,
+  getPluginSecretFields,
+  hasPluginTask
+} from "../plugins/jobs/registry.ts";
+import { has as hasModule } from "../plugins/registry.ts";
+import type { PluginAvailability } from "../plugins/types.ts";
 import { parse as parseYaml } from "yaml";
 import { PluginSecretError, PluginSecretService } from "../services/pluginSecretService.ts";
 import { safeErrorKind } from "../utils/safeError.ts";
 import type { Env } from "../types/index.ts";
 
 
+const catalogModulePaths: ReadonlySet<string> = new Set(
+  BUILTIN_PLUGINS.map((plugin) => plugin.modulePath)
+);
+
+
 export class PluginHandlers {
   constructor(private drizzle: DrizzleDB, private env?: Env) {}
-
 
 
 
@@ -42,14 +48,10 @@ export class PluginHandlers {
 
 
 
+
   private invalidConfigResponse(modulePath: string, configYaml: string): Response | null {
-    let parser: ((raw: unknown) => { ok: boolean }) | null = null;
-    let errorDescription = "";
-    if (modulePath === WEBHOOKER_MODULE_PATH) {
-      parser = resolveWebhookerConfig;
-      errorDescription = "Invalid Webhooker config";
-    }
-    if (!parser) return null;
+    const declared = getPluginConfigParser(modulePath);
+    if (!declared) return null;
 
     let parsedConfig: unknown;
     try {
@@ -57,12 +59,12 @@ export class PluginHandlers {
     } catch {
       parsedConfig = undefined;
     }
-    if (parser(parsedConfig).ok) return null;
+    if (declared.parse(parsedConfig).ok) return null;
     return ApiResponse.json(
       {
         error: "Bad Request",
         errorCode: "config",
-        errorDescription
+        errorDescription: declared.errorDescription
       },
       400
     );
@@ -131,6 +133,35 @@ export class PluginHandlers {
   }
 
 
+
+
+
+
+
+  private moduleAvailability(modulePath: string): PluginAvailability {
+    return catalogModulePaths.has(modulePath) ||
+      hasModule(modulePath) ||
+      hasPluginTask(modulePath)
+      ? "available"
+      : "unavailable";
+  }
+
+
+
+
+
+  private pluginUnavailableResponse(): Response {
+    return ApiResponse.json(
+      {
+        error: "Conflict",
+        errorCode: "plugin-unavailable",
+        errorDescription: "Plugin module is unavailable"
+      },
+      409
+    );
+  }
+
+
   private async getConfigExample(modulePath: string): Promise<string> {
     try {
       const { resolve } = await import('../plugins/registry.ts');
@@ -174,7 +205,12 @@ export class PluginHandlers {
       const plugins = await Promise.all(
         filteredResults.map(async (row) => {
           const metadata = pluginMetadata.get(row.modulePath);
-          const configExample = await this.getConfigExample(row.modulePath);
+          const availability = this.moduleAvailability(row.modulePath);
+
+
+          const configExample = availability === "available"
+            ? await this.getConfigExample(row.modulePath)
+            : "";
           return {
             id: row.id,
             name: row.name,
@@ -187,6 +223,7 @@ export class PluginHandlers {
             author: metadata?.author || '',
             license: metadata?.license || '',
             website: metadata?.website || '',
+            availability,
             configExample: configExample,
             createdAt: formatDate(row.createdAt) ?? null
           };
@@ -215,10 +252,35 @@ export class PluginHandlers {
         return ApiResponse.error("Bad Request", 400, "Invalid plugin ID");
       }
 
+
+      const identity = await this.drizzle
+        .select({
+          modulePath: pluginConfigs.modulePath
+        })
+        .from(pluginConfigs)
+        .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
+        .get();
+
+      if (!identity) {
+        return ApiResponse.error("Not Found", 404, "Plugin not found");
+      }
+
+
+      if (!isAdmin) {
+        const hasPermission = await this.hasPluginPermission(userId, identity.modulePath);
+        if (!hasPermission) {
+          return ApiResponse.error("Forbidden", 403, "You don't have permission to access this plugin");
+        }
+      }
+
+
+      if (this.moduleAvailability(identity.modulePath) === "unavailable") {
+        return this.pluginUnavailableResponse();
+      }
+
       const result = await this.drizzle
         .select({
-          configYaml: pluginConfigs.configYaml,
-          modulePath: pluginConfigs.modulePath
+          configYaml: pluginConfigs.configYaml
         })
         .from(pluginConfigs)
         .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
@@ -229,18 +291,10 @@ export class PluginHandlers {
       }
 
 
-      if (!isAdmin) {
-        const hasPermission = await this.hasPluginPermission(userId, result.modulePath);
-        if (!hasPermission) {
-          return ApiResponse.error("Forbidden", 403, "You don't have permission to access this plugin");
-        }
-      }
-
-
       let configYaml = result.configYaml || "";
 
 
-      const secretFields = this.getSecretFields(result.modulePath);
+      const secretFields = this.getSecretFields(identity.modulePath);
       if (configYaml && secretFields.length > 0) {
         try {
           configYaml = await new PluginSecretService(this.env).maskConfigForRead({
@@ -320,8 +374,7 @@ export class PluginHandlers {
       const plugin = await this.drizzle
         .select({
           id: pluginConfigs.id,
-          modulePath: pluginConfigs.modulePath,
-          encryptedSecret: pluginConfigs.encryptedSecret
+          modulePath: pluginConfigs.modulePath
         })
         .from(pluginConfigs)
         .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
@@ -337,6 +390,11 @@ export class PluginHandlers {
         if (!hasPermission) {
           return ApiResponse.error("Forbidden", 403, "You don't have permission to configure this plugin");
         }
+      }
+
+
+      if (this.moduleAvailability(plugin.modulePath) === "unavailable") {
+        return this.pluginUnavailableResponse();
       }
 
 
@@ -358,13 +416,19 @@ export class PluginHandlers {
       const secretFields = this.getSecretFields(plugin.modulePath);
 
       if (secretFields.length > 0) {
+
+        const secretRow = await this.drizzle
+          .select({ encryptedSecret: pluginConfigs.encryptedSecret })
+          .from(pluginConfigs)
+          .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
+          .get();
         let prepared: { configYaml: string; encryptedSecret: string | null };
         try {
           prepared = await new PluginSecretService(this.env).processConfigForSave({
             pluginId,
             userId,
             configYaml,
-            encryptedSecret: plugin.encryptedSecret ?? null,
+            encryptedSecret: secretRow?.encryptedSecret ?? null,
             secretFields
           });
         } catch (error) {
@@ -432,6 +496,11 @@ export class PluginHandlers {
         if (!hasPermission) {
           return ApiResponse.error("Forbidden", 403, "You don't have permission to enable this plugin");
         }
+      }
+
+
+      if (this.moduleAvailability(plugin.modulePath) === "unavailable") {
+        return this.pluginUnavailableResponse();
       }
 
 
@@ -518,8 +587,7 @@ export class PluginHandlers {
           id: pluginConfigs.id,
           name: pluginConfigs.name,
           modulePath: pluginConfigs.modulePath,
-          enabled: pluginConfigs.enabled,
-          configYaml: pluginConfigs.configYaml
+          enabled: pluginConfigs.enabled
         })
         .from(pluginConfigs)
         .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
@@ -533,9 +601,20 @@ export class PluginHandlers {
         return ApiResponse.error("Forbidden", 403, "Plugin is disabled");
       }
 
+
+      if (this.moduleAvailability(pluginConfig.modulePath) === "unavailable") {
+        return this.pluginUnavailableResponse();
+      }
+
       try {
+
+        const configRow = await this.drizzle
+          .select({ configYaml: pluginConfigs.configYaml })
+          .from(pluginConfigs)
+          .where(sql`${pluginConfigs.id} = ${pluginId} AND ${pluginConfigs.userId} = ${userId}`)
+          .get();
         const { parse } = await import('yaml')
-        const config = pluginConfig.configYaml ? parse(pluginConfig.configYaml) as Record<string, any> : undefined
+        const config = configRow?.configYaml ? parse(configRow.configYaml) as Record<string, any> : undefined
         const { resolve } = await import('../plugins/registry.ts')
         const plugin = resolve(pluginConfig.modulePath, pluginConfig.id, pluginConfig.name)
         if (!plugin || !plugin.renderDisplay) {
@@ -573,13 +652,9 @@ export class PluginHandlers {
       const userId = targetUserId || adminUserId;
 
 
-      try {
-        const { resolve } = await import('../plugins/registry.ts');
-        const plugin = resolve(modulePath, 0, '');
-        if (!plugin) {
-          return ApiResponse.error("Bad Request", 400, "Invalid modulePath");
-        }
-      } catch {
+
+
+      if (this.moduleAvailability(modulePath) === "unavailable") {
         return ApiResponse.error("Bad Request", 400, "Invalid modulePath");
       }
 

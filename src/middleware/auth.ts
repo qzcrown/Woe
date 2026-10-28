@@ -284,6 +284,7 @@ export class Authenticator {
 
 
 
+
   hasCredentials(request: Request): boolean {
     const authHeader = request.headers.get("Authorization");
     if (authHeader?.startsWith("Basic ")) {

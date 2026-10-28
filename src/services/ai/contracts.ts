@@ -20,12 +20,19 @@ export type AiProviderFailureKind =
   | 'timeout'
   | 'config'
   | 'invalid-envelope'
+  | 'reasoning-starved'
   | 'unknown'
 
 export type AiUsage = {
   inputTokens?: number
   outputTokens?: number
 }
+
+
+
+
+
+export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'max'
 
 export type AiProviderResult =
   | { ok: true; text: string; httpStatus?: number; usage?: AiUsage }
@@ -63,8 +70,9 @@ export interface AiProviderRequest {
 
 
 
+  reasoningEffort?: ReasoningEffort
 
-  disableReasoning?: boolean
+  reasoningTokens?: number
 }
 
 export interface AiProvider {

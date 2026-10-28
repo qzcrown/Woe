@@ -195,6 +195,12 @@ export class WebSocketService {
   private scheduleReconnect() {
     if (this.isManualClose) return
 
+
+    if (authService.getClientCredentialForRevocation() === null) {
+      this.setConnectionState('disconnected')
+      return
+    }
+
     if (this.reconnectTimer !== null) return
 
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -202,7 +208,7 @@ export class WebSocketService {
       const delay = computeReconnectDelayMs(this.reconnectAttempts)
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null
-        if (this.token) {
+        if (this.token && authService.getClientCredentialForRevocation() !== null) {
           this.connect(this.token)
         }
       }, delay)

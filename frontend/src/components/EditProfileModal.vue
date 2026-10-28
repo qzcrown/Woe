@@ -1,15 +1,10 @@
 <template>
-  <div class="modal-overlay" @click="onClose">
-    <div class="modal-content" @click.stop>
-      <div class="modal-header">
-        <h3>{{ t('editProfile.title') }}</h3>
-        <button type="button" @click="onClose" class="close-btn"
-          :title="t('common.close')" :aria-label="t('common.close')">
-          <X :size="16" aria-hidden="true" />
-        </button>
-      </div>
+  <BaseModal max-width="500px" @close="onClose">
+    <template #title>
+      <h3 class="title">{{ t('editProfile.title') }}</h3>
+    </template>
 
-      <form @submit.prevent="onSubmit" class="profile-form">
+    <form id="edit-profile-form" @submit.prevent="onSubmit" class="profile-form">
 
         <div class="avatar-section">
           <EditableAvatar
@@ -58,27 +53,25 @@
           ></textarea>
         </div>
 
+    </form>
 
-        <div class="form-actions">
-          <button type="button" @click="showChangePassword" class="btn-link">
-            {{ t('editProfile.changePassword') }}
-          </button>
-          <div class="spacer"></div>
-          <button type="button" @click="onClose" class="btn-secondary">{{ t('editProfile.cancel') }}</button>
-          <button type="submit" class="btn-primary" :disabled="!isFormValid">
-            {{ t('editProfile.save') }}
-          </button>
-        </div>
-      </form>
-    </div>
+    <template #footer>
+      <button type="button" @click="showChangePassword" class="btn-link">
+        {{ t('editProfile.changePassword') }}
+      </button>
+      <button type="button" @click="onClose" class="btn-secondary">{{ t('editProfile.cancel') }}</button>
+      <button type="submit" form="edit-profile-form" class="btn-primary" :disabled="!isFormValid">
+        {{ t('editProfile.save') }}
+      </button>
+    </template>
+  </BaseModal>
 
 
-    <ChangePasswordModal
-      v-if="showPasswordModal"
-      @close="showPasswordModal = false"
-      @updated="onPasswordUpdated"
-    />
-  </div>
+  <ChangePasswordModal
+    v-if="showPasswordModal"
+    @close="showPasswordModal = false"
+    @updated="onPasswordUpdated"
+  />
 </template>
 
 <script setup lang="ts">
@@ -87,8 +80,8 @@ import { useI18n } from 'vue-i18n'
 import type { User } from '@/types'
 import { userApi } from '@/services/api'
 import EditableAvatar from './EditableAvatar.vue'
+import BaseModal from './BaseModal.vue'
 import ChangePasswordModal from './ChangePasswordModal.vue'
-import { X } from '@lucide/vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { useAlert } from '@/composables/useAlert'
 
@@ -247,65 +240,7 @@ const onClose = () => {
 </script>
 
 <style scoped>
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--color-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: var(--color-bg-primary);
-  border-radius: 12px;
-  padding: 24px;
-  width: 90%;
-  max-width: 500px;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-tertiary);
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--theme-transition);
-}
-
-.close-btn:hover {
-  color: var(--color-text-primary);
-}
-
-.close-btn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
+.title { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-primary); }
 
 .profile-form {
   display: flex;
@@ -366,13 +301,6 @@ const onClose = () => {
   font-size: 12px;
 }
 
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 8px;
-}
-
 .btn-secondary {
   padding: 10px 20px;
   background: var(--color-bg-primary);
@@ -381,7 +309,7 @@ const onClose = () => {
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
 }
 
 .btn-secondary:hover {
@@ -409,6 +337,8 @@ const onClose = () => {
 }
 
 .btn-link {
+  margin-right: auto;
+
   background: none;
   border: none;
   color: var(--color-primary);
@@ -422,7 +352,4 @@ const onClose = () => {
   text-decoration: underline;
 }
 
-.spacer {
-  flex: 1;
-}
 </style>

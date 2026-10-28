@@ -54,6 +54,9 @@
               <span class="status-indicator"></span>
               {{ plugin.enabled ? $t('common.enabled') : $t('common.disabled') }}
             </div>
+            <div v-if="isUnavailable" class="plugin-status status-unavailable">
+              {{ $t('plugins.unavailable') }}
+            </div>
 
             <div class="plugin-meta">
               <div v-if="plugin.author" class="meta-item">
@@ -70,10 +73,7 @@
                 <span class="meta-label">{{ $t('plugins.website') }}:</span>
                 <a :href="plugin.website" target="_blank" class="meta-link">
                   {{ plugin.website }}
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                    <polyline points="15 3 21 12 9 3 21"></polyline>
-                  </svg>
+                  <ExternalLink :size="12" aria-hidden="true" />
                 </a>
               </div>
 
@@ -87,7 +87,8 @@
               <button
                 @click="togglePlugin"
                 :class="['toggle-btn', plugin.enabled ? 'disable-btn' : 'enable-btn']"
-                :disabled="togglingPlugin"
+                :disabled="togglingPlugin || (!plugin.enabled && isUnavailable)"
+                :title="!plugin.enabled && isUnavailable ? $t('plugins.unavailable') : undefined"
               >
                 <LoadingSpinner v-if="togglingPlugin" size="small" variant="dots" />
                 <span v-else>{{ plugin.enabled ? $t('common.disable') : $t('common.enable') }}</span>
@@ -113,35 +114,39 @@
               <h2 class="section-title">{{ $t('pluginDetail.configuration') }}</h2>
               <div class="config-actions">
                 <button
+                  v-if="!isUnavailable"
                   @click="editMode ? cancelEdit() : startEdit()"
                   :class="['config-mode-btn', editMode ? 'cancel-btn' : 'edit-btn']"
                 >
                   {{ editMode ? $t('common.cancel') : $t('common.edit') }}
                 </button>
-                <button
-                  v-if="editMode"
-                  @click="saveConfig"
-                  :disabled="savingConfig"
-                  class="save-btn"
-                >
-                  <LoadingSpinner v-if="savingConfig" size="small" variant="dots" />
-                  <span v-else>{{ $t('common.save') }}</span>
-                </button>
               </div>
             </div>
+
+
+            <p v-if="isUnavailable" class="config-unavailable-hint">
+              {{ $t('pluginDetail.unavailableHint') }}
+            </p>
 
             <div v-if="!editMode && config" class="config-display">
               <pre class="config-content">{{ config }}</pre>
             </div>
 
-            <div v-else-if="editMode" class="config-editor">
-              <textarea
-                v-model="configText"
-                class="config-textarea"
-                :placeholder="configExample || 'Enter YAML configuration...'"
-                spellcheck="false"
-              ></textarea>
-            </div>
+
+
+            <component
+              v-else-if="editMode"
+              :is="configEditorComponent"
+              :config-yaml="config"
+              :plugin="plugin"
+              :host="uiHost"
+              :saving="savingConfig"
+              @save="onEditorSave"
+              @cancel="cancelEdit"
+            />
+
+
+            <p v-if="editMode && configSaveError" class="config-save-error">{{ configSaveError }}</p>
 
             <div v-if="!editMode && !config" class="no-config">
               <p>{{ $t('pluginDetail.noConfig') }}</p>
@@ -216,31 +221,39 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, shallowRef, computed, watch, onUnmounted, nextTick, type Component } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Layout from '@/components/Layout.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import PluginIcon from '@/components/PluginIcon.vue'
+import { ExternalLink } from '@lucide/vue'
 import { pluginApi } from '@/services/api'
-import { showSuccess, showError } from '@/utils/errorHandler'
-import type { Plugin } from '@/types'
+import PluginConfigEditor from '@/plugins/PluginConfigEditor.vue'
+import { getPluginConfigEditor } from '@/plugins/catalog'
+import { createPluginUiHost } from '@/plugins/host'
+import type { PluginUiHost } from '@/plugins/types'
+import { useAuthStore } from '@/stores/auth'
+import { ApiError, type Plugin } from '@/types'
 
 const { t } = useI18n()
 const route = useRoute()
+const authStore = useAuthStore()
 
 const plugin = ref<Plugin | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const togglingPlugin = ref(false)
 const config = ref<string>('')
-const configText = ref<string>('')
 const editMode = ref(false)
 const savingConfig = ref(false)
+const configSaveError = ref<string | null>(null)
 const displayContent = ref<string>('')
 const loadingDisplay = ref(false)
 const logs = ref<any[]>([])
 
+const uiHost = shallowRef<PluginUiHost>(createPluginUiHost({ ownerId: authStore.user?.id ?? 0 }))
+onUnmounted(() => uiHost.value.dispose())
 
 const editingName = ref(false)
 const editedName = ref('')
@@ -259,56 +272,80 @@ const hasDisplay = computed(() => {
   return plugin.value?.capabilities.includes('displayer')
 })
 
-const configExample = computed(() => {
-  return plugin.value?.configExample || ''
+
+const isUnavailable = computed(() => plugin.value?.availability === 'unavailable')
+
+
+const configEditorComponent = computed<Component>(() => {
+  if (!plugin.value) return PluginConfigEditor
+  return getPluginConfigEditor(plugin.value.modulePath) ?? PluginConfigEditor
 })
 
+
+const hasPackageConfigEditor = computed(() =>
+  plugin.value !== null && getPluginConfigEditor(plugin.value.modulePath) !== null
+)
+
 const loadPlugin = async () => {
+  const current = uiHost.value; const id = pluginId.value
+  if (!current.isCurrent()) return
   loading.value = true
   error.value = null
 
   try {
-    const response = await pluginApi.getPlugins()
+    const response = await pluginApi.getPlugins(current.requestOptions)
+    if (!current.isCurrent()) return
     const plugins = response.data || []
-    plugin.value = plugins.find(p => p.id === pluginId.value) || null
+    plugin.value = plugins.find(p => p.id === id) || null
 
     if (plugin.value) {
 
       try {
-        const configResponse = await pluginApi.getConfig(pluginId.value)
+        const configResponse = await pluginApi.getConfig(id, current.requestOptions)
+        if (!current.isCurrent()) return
         config.value = configResponse.data
-        configText.value = configResponse.data
       } catch (err) {
+        if (!current.isCurrent()) return
 
         console.warn('Failed to load plugin configuration:', err)
       }
 
+      if (!current.isCurrent()) return
+      void loadLogs()
 
       if (hasDisplay.value) {
         await loadDisplay()
+        if (!current.isCurrent()) return
       }
     } else {
       error.value = t('pluginDetail.notFound')
     }
   } catch (err: any) {
+    if (!current.isCurrent()) return
     error.value = err.errorDescription || t('plugins.loadError')
-    showError(err, t('plugins.loadError'))
+    current.notify.error(err, t('plugins.loadError'))
   } finally {
+    if (!current.isCurrent()) return
     loading.value = false
   }
 }
 
 const loadDisplay = async () => {
+  const current = uiHost.value; const id = pluginId.value
+  if (!current.isCurrent()) return
   if (!plugin.value) return
 
   loadingDisplay.value = true
 
   try {
-    const response = await pluginApi.getDisplay(pluginId.value)
+    const response = await pluginApi.getDisplay(id, current.requestOptions)
+    if (!current.isCurrent()) return
     displayContent.value = response.data
   } catch (err: any) {
+    if (!current.isCurrent()) return
     console.warn('Failed to load plugin display:', err)
   } finally {
+    if (!current.isCurrent()) return
     loadingDisplay.value = false
   }
 }
@@ -318,42 +355,56 @@ const refreshDisplay = async () => {
 }
 
 const loadLogs = async () => {
+  const current = uiHost.value; const id = pluginId.value
+  if (!current.isCurrent()) return
   if (!plugin.value) return
   loadingLogs.value = true
   try {
-    const res = await pluginApi.getLogs(pluginId.value, 50)
+    const res = await pluginApi.getLogs(id, 50, current.requestOptions)
+    if (!current.isCurrent()) return
     logs.value = res.data || []
   } catch (err) {
+    if (!current.isCurrent()) return
     console.warn('Failed to load logs', err)
   } finally {
+    if (!current.isCurrent()) return
     loadingLogs.value = false
   }
 }
 
 const togglePlugin = async () => {
+  const current = uiHost.value; const id = pluginId.value
+  if (!current.isCurrent()) return
   if (!plugin.value) return
 
   togglingPlugin.value = true
 
   try {
     if (plugin.value.enabled) {
-      await pluginApi.disable(pluginId.value)
-      showSuccess(t('plugins.disabledSuccess', { name: plugin.value.name }))
+      await pluginApi.disable(id, current.requestOptions)
+      if (!current.isCurrent()) return
+      current.notify.success(t('plugins.disabledSuccess', { name: plugin.value.name }))
     } else {
-      await pluginApi.enable(pluginId.value)
-      showSuccess(t('plugins.enabledSuccess', { name: plugin.value.name }))
+      await pluginApi.enable(id, current.requestOptions)
+      if (!current.isCurrent()) return
+      current.notify.success(t('plugins.enabledSuccess', { name: plugin.value.name }))
     }
 
 
     await loadPlugin()
+    if (!current.isCurrent()) return
   } catch (err: any) {
-    showError(err, t('plugins.toggleError', { action: plugin.value.enabled ? t('common.disable') : t('common.enable') }))
+    if (!current.isCurrent()) return
+    current.notify.error(err, t('plugins.toggleError', { action: plugin.value.enabled ? t('common.disable') : t('common.enable') }))
   } finally {
+    if (!current.isCurrent()) return
     togglingPlugin.value = false
   }
 }
 
 const startEdit = () => {
+  if (!uiHost.value.isCurrent()) return
+  configSaveError.value = null
   editMode.value = true
 }
 
@@ -361,23 +412,71 @@ const cancelEdit = () => {
   editMode.value = false
 }
 
-const saveConfig = async () => {
-  if (!plugin.value) return
-  savingConfig.value = true
+
+
+
+
+
+const reloadConfig = async (): Promise<void> => {
+  const current = uiHost.value; const id = pluginId.value
+  if (!current.isCurrent()) return
   try {
-    await pluginApi.updateConfig(pluginId.value, configText.value)
-    config.value = configText.value
-    editMode.value = false
-    showSuccess(t('pluginDetail.configSaved'))
+    const response = await pluginApi.getConfig(id, current.requestOptions)
+    if (!current.isCurrent()) return
+    config.value = response.data
   } catch (err: unknown) {
-    showError(err instanceof Error ? err : new Error(String(err)), t('pluginDetail.configSaveFailed'))
+    if (!current.isCurrent()) return
+    current.notify.error(err, t('pluginDetail.configReloadFailed'))
+  }
+}
+
+
+const onEditorSave = async (yaml: string) => {
+  const current = uiHost.value; const id = pluginId.value
+  if (!current.isCurrent()) return
+  if (!plugin.value || savingConfig.value) return
+
+  savingConfig.value = true
+
+  try {
+    await pluginApi.updateConfig(id, yaml, current.requestOptions)
+    if (!current.isCurrent()) return
+
+
+
+    configSaveError.value = null
+    editMode.value = false
+    current.notify.success(t('pluginDetail.configSaved'))
+    await reloadConfig()
+    if (!current.isCurrent()) return
+  } catch (err: unknown) {
+    if (!current.isCurrent()) return
+
+
+
+
+    if (hasPackageConfigEditor.value) {
+      const status = err instanceof ApiError ? err.statusCode : undefined
+      configSaveError.value =
+        status === 400
+          ? t('pluginDetail.configInvalid')
+          : status === 409
+            ? t('pluginDetail.configConflict')
+            : status === 503
+              ? t('pluginDetail.configUnavailable')
+              : t('pluginDetail.configSaveFailed')
+    } else {
+      current.notify.error(err, t('pluginDetail.configSaveFailed'))
+    }
   } finally {
+    if (!current.isCurrent()) return
     savingConfig.value = false
   }
 }
 
 
 const startEditingName = () => {
+  if (!uiHost.value.isCurrent()) return
   if (plugin.value) {
     editedName.value = plugin.value.name
     editingName.value = true
@@ -388,18 +487,24 @@ const startEditingName = () => {
 }
 
 const saveName = async () => {
+  const current = uiHost.value; const id = pluginId.value
+  if (!current.isCurrent()) return
   if (!editedName.value || !plugin.value) return
 
   savingName.value = true
   try {
-    await pluginApi.updateName(pluginId.value, editedName.value)
+    await pluginApi.updateName(id, editedName.value, current.requestOptions)
+    if (!current.isCurrent()) return
     editingName.value = false
-    showSuccess(t('plugins.nameUpdated'))
+    current.notify.success(t('plugins.nameUpdated'))
 
     await loadPlugin()
+    if (!current.isCurrent()) return
   } catch (err: any) {
-    showError(err, t('plugins.nameUpdateError'))
+    if (!current.isCurrent()) return
+    current.notify.error(err, t('plugins.nameUpdateError'))
   } finally {
+    if (!current.isCurrent()) return
     savingName.value = false
   }
 }
@@ -411,45 +516,58 @@ const cancelEditName = () => {
 
 
 const uploadIcon = async (file: File) => {
+  const current = uiHost.value; const id = pluginId.value
+  if (!current.isCurrent()) return
   if (!plugin.value) return
 
   uploadingIcon.value = true
   try {
-    await pluginApi.uploadImage(pluginId.value, file)
-    showSuccess(t('plugins.iconUploaded'))
+    await pluginApi.uploadImage(id, file, current.requestOptions)
+    if (!current.isCurrent()) return
+    current.notify.success(t('plugins.iconUploaded'))
 
     await loadPlugin()
+    if (!current.isCurrent()) return
   } catch (err: any) {
-    showError(err, t('plugins.iconUploadError'))
+    if (!current.isCurrent()) return
+    current.notify.error(err, t('plugins.iconUploadError'))
   } finally {
+    if (!current.isCurrent()) return
     uploadingIcon.value = false
   }
 }
 
 const deleteIcon = async () => {
+  const current = uiHost.value; const id = pluginId.value
+  if (!current.isCurrent()) return
   if (!plugin.value) return
 
   try {
-    await pluginApi.deleteImage(pluginId.value)
-    showSuccess(t('plugins.iconDeleted'))
+    await pluginApi.deleteImage(id, current.requestOptions)
+    if (!current.isCurrent()) return
+    current.notify.success(t('plugins.iconDeleted'))
 
     await loadPlugin()
+    if (!current.isCurrent()) return
   } catch (err: any) {
-    showError(err, t('plugins.iconDeleteError'))
+    if (!current.isCurrent()) return
+    current.notify.error(err, t('plugins.iconDeleteError'))
   }
 }
 
-
-watch(editMode, (newMode) => {
-  if (!newMode) {
-    configText.value = config.value
-  }
-})
-
-onMounted(() => {
-  loadPlugin()
-  loadLogs()
-})
+const clearContext = () => {
+  plugin.value = null; config.value = ''; displayContent.value = ''; logs.value = []
+  editMode.value = false; editingName.value = false; editedName.value = ''
+  savingConfig.value = false; savingName.value = false; uploadingIcon.value = false
+  loading.value = false; loadingDisplay.value = false; loadingLogs.value = false
+  togglingPlugin.value = false; configSaveError.value = null; error.value = null
+}
+watch(pluginId, () => {
+  uiHost.value.dispose(); clearContext()
+  uiHost.value = createPluginUiHost({ ownerId: authStore.user?.id ?? 0 })
+  uiHost.value.signal.addEventListener('abort', clearContext, { once: true })
+  void loadPlugin()
+}, { immediate: true, flush: 'sync' })
 </script>
 
 <style scoped>
@@ -469,8 +587,8 @@ onMounted(() => {
 }
 
 .error-message {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-priority-emergency-bg);
   border-radius: 0.5rem;
   padding: 1.5rem;
   text-align: center;
@@ -479,12 +597,12 @@ onMounted(() => {
 }
 
 .error-message h3 {
-  color: #b91c1c;
+  color: var(--color-error-text);
   margin-bottom: 0.5rem;
 }
 
 .error-message p {
-  color: #991b1b;
+  color: var(--color-priority-emergency-text);
   margin-bottom: 1rem;
 }
 
@@ -548,7 +666,7 @@ onMounted(() => {
   border-radius: 0.375rem;
   cursor: pointer;
   color: var(--color-text-tertiary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .edit-name-btn:hover {
@@ -588,7 +706,7 @@ onMounted(() => {
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 500;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .save-btn {
@@ -639,6 +757,18 @@ onMounted(() => {
 
 .status-enabled .status-indicator {
   background-color: var(--color-success);
+}
+
+
+.status-unavailable {
+  color: var(--color-danger, #dc3545);
+  font-size: 0.875rem;
+}
+
+.config-unavailable-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-tertiary);
 }
 
 .plugin-meta {
@@ -695,7 +825,7 @@ onMounted(() => {
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 500;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
   min-width: 120px;
 }
 
@@ -798,7 +928,7 @@ onMounted(() => {
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 500;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .edit-btn {
@@ -819,27 +949,6 @@ onMounted(() => {
   background-color: var(--color-text-secondary);
 }
 
-.config-actions .save-btn {
-  padding: 0.375rem 0.75rem;
-  background-color: var(--color-success);
-  color: var(--color-text-inverse);
-  border: none;
-  border-radius: 0.375rem;
-  cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: var(--theme-transition);
-}
-
-.config-actions .save-btn:hover:not(:disabled) {
-  background-color: var(--color-success-hover);
-}
-
-.config-actions .save-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
 .config-display {
   padding: 0 1.5rem 1.5rem;
 }
@@ -858,29 +967,18 @@ onMounted(() => {
   overflow-y: auto;
 }
 
-.config-editor {
-  padding: 0 1.5rem 1.5rem;
-}
-
-.config-textarea {
-  width: 100%;
-  min-height: 300px;
-  padding: 1rem;
-  border: 1px solid var(--color-border-secondary);
-  border-radius: 0.5rem;
-  font-family: 'Courier New', monospace;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  resize: vertical;
-  background-color: var(--color-bg-primary);
-  color: var(--color-text-primary);
-}
-
 .no-config, .no-display {
   padding: 1.5rem;
   text-align: center;
   color: var(--color-text-tertiary);
   font-style: italic;
+}
+
+
+.config-save-error {
+  margin: -0.5rem 1.5rem 1.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-error);
 }
 
 .capabilities-list {
@@ -915,7 +1013,7 @@ onMounted(() => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .refresh-btn:hover:not(:disabled) {

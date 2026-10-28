@@ -116,7 +116,7 @@ const setActiveTab = (tab: string) => {
   padding: 0.75rem 1.5rem;
   color: var(--color-text-tertiary);
   text-decoration: none;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
   border-left: 3px solid transparent;
 }
 
@@ -204,7 +204,7 @@ const setActiveTab = (tab: string) => {
   inset: 0;
   background-color: var(--color-bg-active);
   border-radius: 9999px;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 .switch .slider::before {
   content: '';

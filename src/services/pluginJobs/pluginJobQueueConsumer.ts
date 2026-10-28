@@ -16,7 +16,7 @@ import type {
   PluginTaskFailure,
   PluginTaskResult
 } from '../../plugins/jobs/types.ts'
-import { createPluginTaskRegistry } from '../../plugins/jobs/registry.ts'
+import { createPluginTaskRegistry, getQuotaNamespaces } from '../../plugins/jobs/registry.ts'
 import { QuotaService } from '../quota/quotaService.ts'
 import { dispatchQueueBatch } from '../queueBatch/dispatch.ts'
 import { parseJobMessage } from '../queueBatch/parse.ts'
@@ -51,7 +51,8 @@ export class PluginJobQueueConsumer {
   constructor(private readonly deps: PluginJobConsumerDeps) {
     this.drizzle = deps.drizzle
     this.env = deps.env
-    this.quota = deps.quota ?? new QuotaService(deps.drizzle, deps.env)
+    this.quota =
+      deps.quota ?? new QuotaService(deps.drizzle, deps.env, getQuotaNamespaces())
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
 
@@ -114,8 +115,10 @@ export class PluginJobQueueConsumer {
     if (!user || user.disabled) return this.failJob(job, 'plugin-unavailable')
 
 
+
+
     const definition = this.resolveDefinition(plugin.modulePath)
-    if (!definition) return this.failJob(job, 'config')
+    if (!definition) return this.failJob(job, 'plugin-unavailable')
     if (!definition.supportedSubjectTypes.includes(job.subjectType)) {
       return this.failJob(job, 'plugin-unavailable')
     }
@@ -160,6 +163,18 @@ export class PluginJobQueueConsumer {
         lastErrorCode: null,
         lastErrorMessage: null
       })
+
+
+
+      if (result.skipped) {
+        await writeJobLog(this.drizzle, {
+          pluginId: job.pluginId,
+          userId: job.userId,
+          event: 'plugin_job.skipped',
+          status: 1,
+          error: result.skipped.code
+        })
+      }
       return 'ack'
     }
 

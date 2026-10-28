@@ -17,7 +17,7 @@
 
 
 import { maxResponseBytes } from './limits.ts'
-import type { OutboundHttp } from '../../plugins/jobs/types.ts'
+import type { OutboundHttp } from '../ai/contracts.ts'
 import type { OutboundPolicyOptions } from '../../plugins/jobs/types.ts'
 
 

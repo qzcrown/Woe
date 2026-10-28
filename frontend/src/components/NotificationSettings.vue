@@ -301,9 +301,9 @@ onMounted(() => {
 }
 
 .alert-warning {
-  background-color: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fde68a;
+  background-color: var(--color-warning-bg);
+  color: var(--color-priority-high-text);
+  border: 1px solid var(--color-warning);
 }
 
 .settings-content {
@@ -366,18 +366,18 @@ onMounted(() => {
 }
 
 .permission-status.pending {
-  background-color: #fef3c7;
-  color: #92400e;
+  background-color: var(--color-warning-bg);
+  color: var(--color-priority-high-text);
 }
 
 .permission-status.granted {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: var(--color-success-bg);
+  color: var(--color-success-text);
 }
 
 .permission-status.denied {
-  background-color: #fee2e2;
-  color: #991b1b;
+  background-color: var(--color-error-bg);
+  color: var(--color-priority-emergency-text);
 }
 
 .toggle-switch {
@@ -438,7 +438,7 @@ input:disabled + .toggle-slider {
   font-size: 0.875rem;
   color: var(--color-text-primary);
   min-width: 120px;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .select-input:focus {
@@ -459,7 +459,7 @@ input:disabled + .toggle-slider {
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
   border: none;
   display: inline-flex;
   align-items: center;

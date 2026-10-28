@@ -6,7 +6,11 @@
         <button type="button" @click="showCreateModal = true" class="create-btn">{{ $t('applications.add') }}</button>
       </div>
 
-      <div v-if="loading" class="loading">{{ $t('applications.loadingApplications') }}</div>
+      <div v-if="loading" class="loading-container">
+        <LoadingSpinner :text="$t('applications.loadingApplications')" />
+      </div>
+
+      <div v-else-if="listError" class="error-message">{{ listError }}</div>
 
       <div v-else class="applications-grid">
         <div
@@ -80,9 +84,12 @@
         >{{ $t('applications.loadMore') }}</button>
       </div>
 
-      <div v-if="!loading && applications.length === 0" class="empty-state">
-        {{ $t('applications.noApplications') }}
-      </div>
+      <EmptyState
+        v-if="!loading && !listError && applications.length === 0"
+        type="applications"
+        :title="$t('applications.noApplications')"
+        :description="$t('applications.emptyDescription')"
+      />
 
       <RegeneratedTokenModal
         v-if="regeneratedToken"
@@ -110,6 +117,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Pencil, RefreshCw, Trash2 } from '@lucide/vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import Layout from '@/components/Layout.vue'
 import ApplicationIcon from '@/components/ApplicationIcon.vue'
 import CreateApplicationModal from '@/components/CreateApplicationModal.vue'
@@ -141,6 +150,7 @@ const MAX_CONCURRENT_DETAILS = 10
 
 const applications = ref<Application[]>([])
 const loading = ref(true)
+const listError = ref<string | null>(null)
 const showCreateModal = ref(false)
 
 const regeneratedToken = ref<{ appId: number; token: string } | null>(null)
@@ -291,6 +301,7 @@ const unsubscribeSessionChanges = authService.subscribeSessionChanges(onSessionC
 
 
 const loadApplications = async (): Promise<void> => {
+  listError.value = null
   const seq = ++listRequestSequence
   const capturedGeneration = pageGeneration
   const capturedSession = authService.getSessionRevision()
@@ -327,6 +338,7 @@ const loadApplications = async (): Promise<void> => {
       authService.getClientCredentialForRevocation() !== capturedClientToken
     if (sessionChanged) orphaned = true
 
+    if (!orphaned) listError.value = t('applications.loadError')
     applications.value = []
     tokenStates.clear()
     resolvedIds.clear()
@@ -776,14 +788,14 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 0.375rem;
   cursor: pointer;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .create-btn:hover {
   background-color: var(--color-success-hover);
 }
 
-.loading, .empty-state {
+.loading-container {
   text-align: center;
   color: var(--color-text-tertiary);
   padding: 3rem;
@@ -815,7 +827,7 @@ onBeforeUnmount(() => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .load-more-btn:hover {
@@ -831,7 +843,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .app-card:hover {
@@ -880,8 +892,8 @@ onBeforeUnmount(() => {
 
 .priority-0 { background: var(--color-info-bg); color: var(--color-info); }
 .priority-1 { background: var(--color-bg-hover); color: var(--color-text-secondary); }
-.priority-2 { background: #fef3c7; color: #92400e; }
-.priority-3 { background: #fecaca; color: #991b1b; }
+.priority-2 { background: var(--color-warning-bg); color: var(--color-priority-high-text); }
+.priority-3 { background: var(--color-priority-emergency-bg); color: var(--color-priority-emergency-text); }
 
 
 .app-intro {
@@ -915,7 +927,7 @@ onBeforeUnmount(() => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .regenerate-btn:hover:not(:disabled) {
@@ -951,7 +963,7 @@ onBeforeUnmount(() => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .app-actions button span {
@@ -1008,5 +1020,14 @@ onBeforeUnmount(() => {
   .app-actions button {
     flex: 1;
   }
+}
+
+.error-message {
+  background-color: var(--color-error-bg);
+  color: var(--color-error);
+  padding: 1rem;
+  border-radius: 0.375rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-error);
 }
 </style>

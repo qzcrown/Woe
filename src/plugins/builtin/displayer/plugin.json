@@ -1,0 +1,14 @@
+{
+  "modulePath": "builtin/displayer",
+  "name": "Displayer",
+  "capabilities": ["displayer"],
+  "author": "qzcrown",
+  "license": "GPL-3.0-only",
+  "website": "https://github.com/qzcrown/woe",
+  "backend": {
+    "event": {
+      "entry": "index.ts",
+      "export": "createDisplayer"
+    }
+  }
+}

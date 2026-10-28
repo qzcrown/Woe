@@ -58,9 +58,13 @@ export function createAiTaskRunner(
           maxTokens: input.maxTokens,
           temperature: input.temperature,
           timeoutMs: input.timeoutMs,
-          ...(input.disableReasoning === undefined
+
+          ...(input.reasoningEffort === undefined
             ? {}
-            : { disableReasoning: input.disableReasoning })
+            : { reasoningEffort: input.reasoningEffort }),
+          ...(input.reasoningTokens === undefined
+            ? {}
+            : { reasoningTokens: input.reasoningTokens })
         })
       } catch {
         return { ok: false, failureKind: 'unknown' }

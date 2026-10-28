@@ -7,6 +7,8 @@
 
 
 
+
+
 import type { Env } from '../../../types/index.ts'
 import type {
   AiProvider,
@@ -15,6 +17,7 @@ import type {
   AiProviderResult
 } from '../contracts.ts'
 import { parseWorkersAiText } from '../envelope.ts'
+import { buildReasoningWire, resolveWorkersAiDialect } from '../providerDialects.ts'
 
 
 class AiRequestTimeout extends Error {
@@ -71,15 +74,30 @@ export function createWorkersAiProvider(env: Env, model: string): AiProvider {
         return { ok: false, failureKind: 'config' }
       }
 
-      const payload: Record<string, unknown> = {
-        messages: input.messages,
-        max_tokens: input.maxTokens,
-        temperature: input.temperature
+      const effort = input.reasoningEffort ?? 'off'
+      const reasoningTokens = input.reasoningTokens ?? 0
+      const dialect = resolveWorkersAiDialect(model)
+
+      let payload: Record<string, unknown>
+      if (dialect === null) {
+
+
+        payload = {
+          messages: input.messages,
+          max_tokens: input.maxTokens,
+          temperature: input.temperature
+        }
+      } else {
+        const wire = buildReasoningWire(dialect, effort, reasoningTokens)
+        const total = input.maxTokens + (wire.reasoningActive ? reasoningTokens : 0)
+        payload = {
+          messages: input.messages,
+          [wire.tokenLimitField]: total,
+          ...(wire.sendTemperature ? { temperature: input.temperature } : {}),
+
+          ...wire.body
+        }
       }
-
-
-
-      if (input.disableReasoning === true) payload.reasoning = { effort: 'none' }
 
       try {
         const raw = await withTimeout(ai.run(model, payload), input.timeoutMs)

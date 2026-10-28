@@ -87,7 +87,7 @@ input, textarea {
   font-size: 0.875rem;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 input:focus, textarea:focus {
   outline: none;
@@ -102,7 +102,7 @@ textarea { min-height: 80px; resize: vertical; }
   cursor: pointer;
   background: var(--color-bg-active);
   color: var(--color-text-secondary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 .btn.primary { background: var(--color-primary); color: var(--color-text-inverse); }
 .btn.primary:hover { background: var(--color-primary-hover); }

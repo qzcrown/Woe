@@ -9,12 +9,12 @@
 
 
 import { parse } from 'yaml'
-import { resolveVariables } from '../../src/plugins/template'
-import type { PluginContext } from '../../src/plugins/types'
-import type { PluginHostContext } from '../../src/plugins/jobs/types'
+import { resolveVariables } from '../../../../../../src/plugins/template'
+import type { PluginContext } from '../../../../../../src/plugins/types'
+import type { PluginHostContext } from '../../../../../../src/plugins/jobs/types'
 import {
   createWebhookerStaticDefinition
-} from '../../src/plugins/builtin/webhooker/definition'
+} from '../../../../../../src/plugins/builtin/webhooker/definition'
 
 
 function createMockContext(overrides: Partial<PluginContext> = {}): PluginContext {

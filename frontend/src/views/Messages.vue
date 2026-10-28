@@ -95,7 +95,7 @@
               <h3 class="message-title">{{ message.title }}</h3>
               <div class="message-meta">
                 <span class="message-priority" :class="`priority-${getPriorityLevel(message.priority ?? 1)}`">
-                  {{ getPriorityLabel(message.priority) }}
+                  {{ getPriorityLabel(message.priority, t) }}
                 </span>
                 <button type="button" class="delete-btn" @click.stop="deleteMessage(message.id)"
                   :title="$t('messages.deleteMessage')" :aria-label="$t('messages.deleteMessage')">
@@ -105,7 +105,7 @@
             </div>
             <p class="message-content">{{ message.message }}</p>
             <div v-if="getMessageTags(message).length" class="message-tags">
-              <span v-for="tag in getMessageTags(message)" :key="tag" class="message-tag-chip">{{ tag }}</span>
+              <span v-for="tag in getMessageTags(message)" :key="tag" class="tag-chip">{{ tag }}</span>
             </div>
             <div class="message-footer">
               <span class="message-time" :title="formatDateTime(message.date)">{{ formatRelativeTime(message.date) }}</span>
@@ -160,13 +160,14 @@
         :message="selectedMessage"
         @close="closeMessageDetail"
         @deleted="handleMessageDeleted"
+        @tags-updated="handleTagsUpdated"
       />
     </div>
   </Layout>
 </template>
 
 <script setup lang="ts">
-import { getPriorityLevel } from '@/utils/priority'
+import { getPriorityLevel, getPriorityLabel } from '@/utils/priority'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -185,7 +186,7 @@ import { showError, showSuccess } from '@/utils/errorHandler'
 import { formatRelativeTime, formatDateTime } from '@/utils/datetime'
 import { browserNotificationService } from '@/services/browserNotification'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
-import { extractMessageTags } from '@/utils/messageTags'
+import { MESSAGE_TAGS_EXTRAS_KEY, extractMessageTags } from '@/utils/messageTags'
 import type { Application, Message } from '@/types'
 
 const { t } = useI18n()
@@ -248,16 +249,6 @@ const allSelected = computed(() => {
     selectedMessages.value.length === filteredMessages.value.length
 })
 
-const getPriorityLabel = (priority?: number) => {
-  if (priority === undefined || priority === null) return t('common.priorityNormal')
-  const labels = [
-    t('common.priorityLow'),
-    t('common.priorityNormal'),
-    t('common.priorityHigh'),
-    t('common.priorityEmergency')
-  ]
-  return labels[getPriorityLevel(priority ?? 1)] || t('common.priorityNormal')
-}
 
 
 const getApplicationName = (appid: number) => {
@@ -267,6 +258,19 @@ const getApplicationName = (appid: number) => {
 
 
 const getMessageTags = (message: Message): string[] => extractMessageTags(message.extras)
+
+const handleTagsUpdated = (payload: { id: number; tags: string[] }) => {
+  const target = messages.value.find(message => message.id === payload.id)
+  if (target) {
+    target.extras = { ...(target.extras || {}), [MESSAGE_TAGS_EXTRAS_KEY]: payload.tags }
+  }
+  if (selectedMessage.value?.id === payload.id) {
+    selectedMessage.value = {
+      ...selectedMessage.value,
+      extras: { ...(selectedMessage.value.extras || {}), [MESSAGE_TAGS_EXTRAS_KEY]: payload.tags }
+    }
+  }
+}
 
 const refreshMessages = () => {
   return messagesStore.fetchMessages({ limit: 100 })
@@ -488,7 +492,7 @@ const dismissNotificationPrompt = () => {
 }
 
 .send-btn:hover {
-  background-color: #059669;
+  background-color: var(--color-success-hover);
 }
 
 .refresh-btn {
@@ -621,7 +625,7 @@ const dismissNotificationPrompt = () => {
 }
 
 .delete-btn:hover {
-  background: #dc2626;
+  background: var(--color-error-hover);
 }
 
 
@@ -649,7 +653,7 @@ const dismissNotificationPrompt = () => {
   margin: -0.5rem 0 0.875rem;
 }
 
-.message-tag-chip {
+.tag-chip {
   display: inline-block;
   padding: 0.1875rem 0.5rem;
   border-radius: 9999px;
@@ -690,7 +694,7 @@ const dismissNotificationPrompt = () => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
 }
 
 .load-more-btn:hover:not(:disabled) {
@@ -753,11 +757,11 @@ const dismissNotificationPrompt = () => {
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 500;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
 }
 
 .delete-selected-btn:hover:not(:disabled) {
-  background-color: #dc2626;
+  background-color: var(--color-error-hover);
 }
 
 .delete-selected-btn:disabled {
@@ -815,7 +819,7 @@ const dismissNotificationPrompt = () => {
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
   border: none;
 }
 

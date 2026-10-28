@@ -432,7 +432,7 @@ onMounted(() => {
   border-radius: 0.375rem;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 .input:focus, .textarea:focus, select:focus {
   outline: none;
@@ -447,7 +447,7 @@ onMounted(() => {
   border: 1px solid var(--color-border-secondary);
   border-radius: 0.375rem;
   cursor: pointer;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 .cancel-btn:hover { background-color: var(--color-bg-active); }
 .submit-btn {
@@ -457,7 +457,7 @@ onMounted(() => {
   border: none;
   border-radius: 0.375rem;
   cursor: pointer;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 .submit-btn:hover:not(:disabled) { background-color: var(--color-primary-hover); }
 .submit-btn:disabled { opacity: 0.7; cursor: not-allowed; }
@@ -524,7 +524,7 @@ onMounted(() => {
   border-radius: 9999px;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
 }
 
 .tag.selected {
@@ -584,7 +584,7 @@ button.tag.selected {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .tag-add-btn:hover {
@@ -636,7 +636,7 @@ button.tag.selected {
   background: var(--color-bg-primary);
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 .render-toggle:hover {
   color: var(--color-text-primary);

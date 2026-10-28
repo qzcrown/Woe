@@ -9,13 +9,11 @@
 
 
 
+
 import { eq } from 'drizzle-orm'
 import type { DrizzleDB } from '../../drizzle/index.ts'
 import { systemState } from '../../models/index.ts'
 import { QuotaUsageStore } from './quotaUsageStore.ts'
-
-export const SUPPORTED_QUOTA_NAMESPACES = ['ai'] as const
-export type QuotaNamespace = (typeof SUPPORTED_QUOTA_NAMESPACES)[number]
 
 export const DEFAULT_DAILY_LIMIT = 1000
 
@@ -105,29 +103,33 @@ export function parseQuotaLimit(raw: string): number | null {
   return Number.isSafeInteger(value) ? value : null
 }
 
-function assertNamespace(namespace: string): QuotaNamespace {
-  if (!(SUPPORTED_QUOTA_NAMESPACES as readonly string[]).includes(namespace)) {
+function assertNamespace(namespaces: readonly string[], namespace: string): string {
+  if (!namespaces.includes(namespace)) {
     throw new QuotaNamespaceError(namespace)
   }
-  return namespace as QuotaNamespace
+  return namespace
 }
 
-function defaultLimitKey(namespace: QuotaNamespace): string {
+function defaultLimitKey(namespace: string): string {
   return `${namespace}_user_daily_limit`
 }
 
-function overrideKey(namespace: QuotaNamespace, userId: number): string {
+function overrideKey(namespace: string, userId: number): string {
   return `${namespace}:limit:${userId}`
 }
 
 export class QuotaService {
   private readonly usage: QuotaUsageStore
 
+  private readonly namespaces: readonly string[]
+
   constructor(
     private drizzle: DrizzleDB,
-    private env: QuotaServiceEnv = {}
+    private env: QuotaServiceEnv = {},
+    namespaces: readonly string[]
   ) {
     this.usage = new QuotaUsageStore(drizzle)
+    this.namespaces = Object.freeze([...namespaces])
   }
 
 
@@ -135,7 +137,7 @@ export class QuotaService {
 
 
   async check(namespace: string, userId: number, pluginId: number): Promise<QuotaCheckResult> {
-    const ns = assertNamespace(namespace)
+    const ns = assertNamespace(this.namespaces, namespace)
 
     const limit = await this.resolveLimit(ns, userId)
     if (!limit.ok) return { status: limit.reason }
@@ -165,7 +167,7 @@ export class QuotaService {
     pluginId: number,
     quotaConsumed: boolean
   ): Promise<QuotaConsumeResult> {
-    assertNamespace(namespace)
+    assertNamespace(this.namespaces, namespace)
     if (quotaConsumed === false) return { status: 'skipped' }
 
     const written = await this.usage.consumeUsage(pluginId, userId, currentUtcDay())
@@ -178,7 +180,7 @@ export class QuotaService {
     userId: number,
     pluginId: number
   ): Promise<QuotaDescription> {
-    const ns = assertNamespace(namespace)
+    const ns = assertNamespace(this.namespaces, namespace)
 
     let state: { usageDay: string | null; usageCount: number }
     try {
@@ -206,7 +208,7 @@ export class QuotaService {
     namespace: string,
     rows: QuotaUsageRow[]
   ): Promise<QuotaNamespaceDescription> {
-    const ns = assertNamespace(namespace)
+    const ns = assertNamespace(this.namespaces, namespace)
 
     const defaultLimit = await this.readDefaultLimit(ns)
     if (!defaultLimit.ok) return { ok: false, reason: defaultLimit.reason }
@@ -252,7 +254,7 @@ export class QuotaService {
     userId: number,
     limit: number | null
   ): Promise<QuotaOverrideResult> {
-    const ns = assertNamespace(namespace)
+    const ns = assertNamespace(this.namespaces, namespace)
 
     if (limit !== null && (!Number.isSafeInteger(limit) || limit < 0)) {
       return { status: 'invalid' }
@@ -277,7 +279,7 @@ export class QuotaService {
     }
   }
 
-  private async resolveLimit(namespace: QuotaNamespace, userId: number): Promise<LimitReadResult> {
+  private async resolveLimit(namespace: string, userId: number): Promise<LimitReadResult> {
     const override = await this.readOverride(namespace, userId)
 
     if (override.kind === 'value') {
@@ -294,7 +296,7 @@ export class QuotaService {
   }
 
   private async readOverride(
-    namespace: QuotaNamespace,
+    namespace: string,
     userId: number
   ): Promise<OverrideReadResult> {
     const kv = this.env.QUOTA_KV
@@ -314,7 +316,7 @@ export class QuotaService {
     return parsed === null ? { kind: 'invalid' } : { kind: 'value', limit: parsed }
   }
 
-  private async readDefaultLimit(namespace: QuotaNamespace): Promise<LimitReadResult> {
+  private async readDefaultLimit(namespace: string): Promise<LimitReadResult> {
     let row: { value: string } | undefined
 
     try {

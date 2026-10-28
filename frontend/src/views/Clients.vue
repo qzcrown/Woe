@@ -6,7 +6,11 @@
         <button @click="showCreateModal = true" class="create-btn">{{ $t('clients.add') }}</button>
       </div>
 
-      <div v-if="loading" class="loading">{{ $t('clients.loadingClients') }}</div>
+      <div v-if="loading" class="loading-container">
+        <LoadingSpinner :text="$t('clients.loadingClients')" />
+      </div>
+
+      <div v-else-if="listError" class="error-message">{{ listError }}</div>
 
       <div v-else class="clients-grid">
         <div v-for="client in clients" :key="client.id" class="client-card">
@@ -45,9 +49,12 @@
         </div>
       </div>
 
-      <div v-if="!loading && clients.length === 0" class="empty-state">
-        {{ $t('clients.noClients') }}
-      </div>
+      <EmptyState
+        v-if="!loading && !listError && clients.length === 0"
+        type="clients"
+        :title="$t('clients.noClients')"
+        :description="$t('clients.emptyDescription')"
+      />
 
       <CreateClientModal
         v-if="showCreateModal"
@@ -68,6 +75,8 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Pencil, Trash2 } from '@lucide/vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import Layout from '@/components/Layout.vue'
 import { clientApi } from '@/services/api'
 import CreateClientModal from '@/components/CreateClientModal.vue'
@@ -76,6 +85,7 @@ import { showSuccess, showError } from '@/utils/errorHandler'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { formatDate } from '@/utils/datetime'
 import { useElevatedAction, isElevationCancelled } from '@/composables/useElevatedAction'
+import { getClientPlatformLabels } from '@/plugins/catalog'
 import type { Client } from '@/types'
 
 const { t } = useI18n()
@@ -84,23 +94,33 @@ const { withElevation } = useElevatedAction()
 
 const clients = ref<Client[]>([])
 const loading = ref(true)
+const listError = ref<string | null>(null)
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const editingClient = ref<Client | null>(null)
 
 
+
+
+
+
+const clientPlatformLabels = getClientPlatformLabels()
+
 const getPlatformText = (platform?: string): string => {
-  if (!platform || platform === 'unknown') return t('clients.unknown')
   if (platform === 'web') return 'Web'
-  return platform
+  if (!platform || platform === 'unknown') return t('clients.unknown')
+  const labelKey = clientPlatformLabels[platform]
+  return labelKey === undefined ? t('clients.platformUnavailable') : t(labelKey)
 }
 
 const loadClients = async () => {
+  listError.value = null
   try {
     const res = await clientApi.getClients()
     clients.value = res.data || []
   } catch (err) {
     console.error('Failed to load clients:', err)
+    listError.value = t('clients.loadError')
   } finally {
     loading.value = false
   }
@@ -173,14 +193,14 @@ onMounted(() => {
   border: none;
   border-radius: 0.375rem;
   cursor: pointer;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .create-btn:hover {
   background-color: var(--color-success-hover);
 }
 
-.loading, .empty-state {
+.loading-container {
   text-align: center;
   color: var(--color-text-tertiary);
   padding: 3rem;
@@ -256,23 +276,23 @@ onMounted(() => {
 }
 
 .status-active {
-  background: rgba(34, 197, 94, 0.1);
-  color: rgb(34, 197, 94);
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
 }
 
 .status-inactive {
-  background: rgba(245, 158, 11, 0.12);
-  color: rgb(217, 119, 6);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-hover);
 }
 
 .status-invalid {
-  background: rgba(239, 68, 68, 0.1);
-  color: rgb(239, 68, 68);
+  background: var(--color-error-bg);
+  color: var(--color-error);
 }
 
 .status-expired {
-  background: rgba(156, 163, 175, 0.1);
-  color: rgb(156, 163, 175);
+  background: var(--color-priority-normal-bg);
+  color: var(--color-text-muted);
 }
 
 .client-last-ping {
@@ -297,7 +317,7 @@ onMounted(() => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .edit-btn {
@@ -346,5 +366,14 @@ onMounted(() => {
   .client-actions button {
     flex: 1;
   }
+}
+
+.error-message {
+  background-color: var(--color-error-bg);
+  color: var(--color-error);
+  padding: 1rem;
+  border-radius: 0.375rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-error);
 }
 </style>

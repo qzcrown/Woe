@@ -92,7 +92,7 @@ describe('worker queue routing by batch.queue', () => {
     mockCreatePushRuntime.mockResolvedValue({ providers: mockRuntimeProviders })
   })
 
-  test('plugin job queue name constant is stable (Task 9 must align wrangler)', () => {
+  test('plugin job queue name constant is stable', () => {
     expect(PLUGIN_JOB_QUEUE_NAME).toBe('woe-plugin-jobs')
     expect(PUSH_QUEUE_NAME).toBe('woe-push-queue')
   })
@@ -205,5 +205,39 @@ describe('scheduled plugin job cleanup wiring', () => {
     expect(runOnceSpy).toHaveBeenCalledTimes(1)
     expect(cleanupExpiredClientsSpy).toHaveBeenCalledTimes(1)
     errorSpy.mockRestore()
+  })
+})
+
+describe('generated queue mappings reach the Worker consumer', () => {
+  test.each([['production', 'full'], ['staging', 'full'], ['staging', 'public'], ['staging', 'zero']])('%s %s uses mapped names and never ackAll', async (target, variant) => {
+    jest.clearAllMocks()
+    const { execFileSync } = require('node:child_process')
+    const config = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', `
+      import fs from 'node:fs';
+      import { buildWranglerConfig, loadCoreResources } from './scripts/plugins/resourceConfig.mjs';
+      import { discoverPluginPackageRecords } from './scripts/plugins/discovery.mjs';
+      const target = process.argv[1], variant = process.argv[2];
+      const records = discoverPluginPackageRecords({ rootDir: process.cwd(), packageRoot: 'src/plugins/builtin' })
+        .filter(record => variant !== 'zero' && (variant !== 'public' || ['displayer','webhooker'].includes(record.slug)));
+      const resources = JSON.parse(fs.readFileSync('resources.json'));
+      process.stdout.write(JSON.stringify(buildWranglerConfig({ core: loadCoreResources(), records, resources, targetEnvironment: target }).config));
+    `, target, variant], { cwd: process.cwd(), encoding: 'utf8' }))
+    if (!config.queues) {
+      expect(config.vars.PLUGIN_JOB_QUEUE_NAME).toBeUndefined()
+      expect(config.vars.PUSH_QUEUE_NAME).toBeUndefined()
+      expect(consumePluginJobsSpy).not.toHaveBeenCalled()
+      expect(consumePushSpy).not.toHaveBeenCalled()
+    }
+    for (const consumer of config.queues?.consumers ?? []) {
+      jest.clearAllMocks()
+      const batch = createBatch(consumer.queue)
+      await (worker as any).queue(batch, { DB: {}, PUSH_QUEUE: {}, ...config.vars }, {})
+      expect(batch.ackAll).not.toHaveBeenCalled()
+      expect(batch.retryAll).not.toHaveBeenCalled()
+      const pluginJobs = consumer.queue === config.vars.PLUGIN_JOB_QUEUE_NAME
+      expect(consumePluginJobsSpy).toHaveBeenCalledTimes(pluginJobs ? 1 : 0)
+      expect(consumePushSpy).toHaveBeenCalledTimes(pluginJobs ? 0 : 1)
+    }
+    if (variant === 'public') expect(config.vars.PUSH_QUEUE_NAME).toBeUndefined()
   })
 })

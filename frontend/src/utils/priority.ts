@@ -14,3 +14,18 @@ export function normalizePriorityFilter(raw: string | null): string {
   const priority = Number(raw)
   return Number.isSafeInteger(priority) ? String(getPriorityLevel(priority)) : ''
 }
+
+
+export function getPriorityLabel(
+  priority: number | null | undefined,
+  t: (key: string) => string
+): string {
+  if (priority === undefined || priority === null) return t('common.priorityNormal')
+  const labels = [
+    t('common.priorityLow'),
+    t('common.priorityNormal'),
+    t('common.priorityHigh'),
+    t('common.priorityEmergency')
+  ]
+  return labels[getPriorityLevel(priority ?? 1)] || t('common.priorityNormal')
+}

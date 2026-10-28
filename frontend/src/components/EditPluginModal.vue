@@ -1,15 +1,8 @@
 <template>
-  <div v-if="show" class="modal-overlay" @click.self="close">
-    <div class="modal-content" @click.stop>
-      <div class="modal-header">
-        <h2>{{ $t('plugins.editPlugin') }}</h2>
-        <button type="button" @click="close" class="close-btn"
-          :title="$t('common.close')" :aria-label="$t('common.close')">
-          <X :size="16" aria-hidden="true" />
-        </button>
-      </div>
-
-      <div class="modal-body">
+  <BaseModal v-if="show && active" max-width="500px" @close="close">
+    <template #title>
+      <h2 class="title">{{ $t('plugins.editPlugin') }}</h2>
+    </template>
 
         <div class="form-group">
           <label>{{ $t('plugins.icon') }}</label>
@@ -47,27 +40,24 @@
             spellcheck="false"
           ></textarea>
         </div>
-      </div>
-
-      <div class="modal-footer">
-        <button @click="close" class="cancel-btn">{{ $t('common.cancel') }}</button>
-        <button @click="save" :disabled="saving" class="save-btn">
-          <LoadingSpinner v-if="saving" size="small" variant="dots" />
-          <span v-else>{{ $t('common.save') }}</span>
-        </button>
-      </div>
-    </div>
-  </div>
+    <template #footer>
+      <button @click="close" class="cancel-btn">{{ $t('common.cancel') }}</button>
+      <button @click="save" :disabled="saving" class="save-btn">
+        <LoadingSpinner v-if="saving" size="small" variant="dots" />
+        <span v-else>{{ $t('common.save') }}</span>
+      </button>
+    </template>
+  </BaseModal>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { X } from '@lucide/vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import PluginIcon from './PluginIcon.vue'
+import BaseModal from './BaseModal.vue'
 import { pluginApi } from '@/services/api'
-import { showSuccess, showError } from '@/utils/errorHandler'
+import { createPluginUiHost, type PluginUiHost } from '@/plugins/host'
 import type { Plugin } from '@/types'
 
 const props = defineProps<{
@@ -94,136 +84,62 @@ watch(() => props.plugin?.icon, (newIcon) => {
   localIcon.value = newIcon
 }, { immediate: true })
 
-
-watch(() => props.show, async (isOpen) => {
-  if (isOpen && props.plugin) {
-    editedName.value = props.plugin.name
-    configExample.value = props.plugin.configExample || ''
-    try {
-      const res = await pluginApi.getConfig(props.plugin.id)
-      editedConfig.value = res.data || ''
-    } catch {
-      editedConfig.value = ''
-    }
-  }
-})
-
-const close = () => {
-  emit('close')
-}
-
+const active = ref(false)
+let host: PluginUiHost | undefined
+const reset = () => { active.value = false; editedName.value = ''; editedConfig.value = ''; saving.value = false; uploadingIcon.value = false }
+watch(() => [props.show, props.plugin.id] as const, async ([open, id]) => {
+  host?.dispose(); reset()
+  if (!open) return
+  const current = host = createPluginUiHost({ ownerId: 0 })
+  active.value = true
+  current.signal.addEventListener('abort', reset, { once: true })
+  editedName.value = props.plugin.name
+  configExample.value = props.plugin.configExample || ''
+  try {
+    const res = await pluginApi.getConfig(id, current.requestOptions)
+    if (current.isCurrent()) editedConfig.value = res.data || ''
+  } catch (err) { current.notify.error(err, t('plugins.loadError')) }
+}, { immediate: true, flush: 'sync' })
+onUnmounted(() => host?.dispose())
+const close = () => { host?.dispose(); reset(); emit('close') }
 const handleIconUpload = async (file: File) => {
+  const current = host; const id = props.plugin.id
+  if (!current?.isCurrent()) return
   uploadingIcon.value = true
   try {
-    const res = await pluginApi.uploadImage(props.plugin.id, file)
-    localIcon.value = res.data.icon
-    showSuccess(t('plugins.iconUploaded'))
-    emit('updated')
-  } catch (err: any) {
-    showError(err, t('plugins.iconUploadError'))
-  } finally {
-    uploadingIcon.value = false
-  }
+    const res = await pluginApi.uploadImage(id, file, current.requestOptions)
+    if (!current.isCurrent()) return
+    localIcon.value = res.data.icon; current.notify.success(t('plugins.iconUploaded')); emit('updated')
+  } catch (err) { current.notify.error(err, t('plugins.iconUploadError')) }
+  finally { if (current.isCurrent()) uploadingIcon.value = false }
 }
-
 const handleIconDelete = async () => {
+  const current = host; const id = props.plugin.id
+  if (!current?.isCurrent()) return
   try {
-    await pluginApi.deleteImage(props.plugin.id)
-    localIcon.value = undefined
-    showSuccess(t('plugins.iconDeleted'))
-    emit('updated')
-  } catch (err: any) {
-    showError(err, t('plugins.iconDeleteError'))
-  }
+    await pluginApi.deleteImage(id, current.requestOptions)
+    if (!current.isCurrent()) return
+    localIcon.value = undefined; current.notify.success(t('plugins.iconDeleted')); emit('updated')
+  } catch (err) { current.notify.error(err, t('plugins.iconDeleteError')) }
 }
-
 const save = async () => {
-  if (!editedName.value) return
-
+  const current = host; const id = props.plugin.id
+  if (!current?.isCurrent() || !editedName.value || saving.value) return
+  const name = editedName.value; const yaml = editedConfig.value
   saving.value = true
   try {
-
-    if (editedName.value !== props.plugin.name) {
-      await pluginApi.updateName(props.plugin.id, editedName.value)
-    }
-
-    await pluginApi.updateConfig(props.plugin.id, editedConfig.value)
-    showSuccess(t('plugins.updateSucceeded'))
-    emit('updated')
-    close()
-  } catch (err: any) {
-    showError(err, t('plugins.updateError'))
-  } finally {
-    saving.value = false
-  }
+    if (name !== props.plugin.name) await pluginApi.updateName(id, name, current.requestOptions)
+    if (!current.isCurrent()) return
+    await pluginApi.updateConfig(id, yaml, current.requestOptions)
+    if (!current.isCurrent()) return
+    current.notify.success(t('plugins.updateSucceeded')); emit('updated'); close()
+  } catch (err) { current.notify.error(err, t('plugins.updateError')) }
+  finally { if (current.isCurrent()) saving.value = false }
 }
 </script>
 
 <style scoped>
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--color-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: var(--color-bg-primary);
-  border-radius: 0.75rem;
-  width: 90%;
-  max-width: 500px;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: var(--shadow-lg);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--color-border-primary);
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-tertiary);
-  padding: 0;
-  width: 2rem;
-  height: 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--theme-transition);
-}
-
-.close-btn:hover {
-  color: var(--color-text-primary);
-}
-
-.close-btn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.modal-body {
-  padding: 1.5rem;
-}
+.title { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-primary); }
 
 .form-group {
   display: flex;
@@ -245,7 +161,7 @@ const save = async () => {
   font-size: 0.875rem;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .form-group .input:focus {
@@ -265,7 +181,7 @@ const save = async () => {
   resize: vertical;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .config-textarea:focus {
@@ -290,7 +206,7 @@ const save = async () => {
   cursor: pointer;
   font-weight: 500;
   color: var(--color-text-secondary);
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .cancel-btn:hover {
@@ -308,7 +224,7 @@ const save = async () => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-weight: 500;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .save-btn:hover:not(:disabled) {

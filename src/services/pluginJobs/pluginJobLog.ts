@@ -37,6 +37,7 @@ const JOB_ERROR_MESSAGES: Record<string, string> = {
   'provider-timeout': 'downstream request timed out',
   'provider-network': 'downstream network request failed',
   'provider-invalid-envelope': 'downstream response was invalid',
+  'provider-reasoning-budget': 'reasoning consumed the output token budget',
   'invalid-output': 'plugin produced invalid output',
   'outbound-blocked': 'outbound request was blocked by policy',
   'downstream-rejected': 'downstream service rejected the request',

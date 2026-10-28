@@ -17,7 +17,7 @@ info:
     is matched case-insensitively; the token itself is never trimmed). Retained
     deviation: a recognized Bearer scheme with an explicitly empty token counts
     as submitted credentials and is rejected with 401 instead of falling back
-    to anonymous access. On the wire, the server keeps the scheme and token distinction exposed by the
+    to anonymous access (see spec compatibility notes §4). On the wire, the server keeps the scheme and token distinction exposed by the
     runtime; an explicitly empty recognized Bearer token is rejected with 401.
     Runtime-specific header whitespace normalization must be verified separately.
 
@@ -57,11 +57,13 @@ info:
     entries); stored legacy values and R2 keys are unchanged and external
     full URLs / data URLs pass through verbatim. `POST /auth/logout` is the
     token-path subset of the upstream endpoint (token revocation only, no
-    cookie session; see the operation description for boundaries). Woe extensions and retained deviations (including parsed safe integer
-    priority precision and strict text binding) are documented in this description;
-    implemented routes are not a claim of full behavioral compatibility.
+    cookie session; see the operation description for boundaries). See
+    `spec compatibility notes` for the full matrix (Woe extensions
+    and retained deviations, including parsed safe integer priority
+    precision and strict text binding); implemented routes are not a claim
+    of full behavioral compatibility.
 
-  version: 1.3.7
+  version: 1.3.8
   contact:
     name: Woe API Support
   license:
@@ -133,7 +135,7 @@ paths:
       description: >-
         Returns version, commit, and build date generated at build/deploy time.
         Reports Woe's own version, not the upstream Gotify version (retained
-        deviation).
+        deviation; see spec compatibility notes §4).
       operationId: getVersion
       security: []
       responses:
@@ -1161,6 +1163,16 @@ paths:
                 platform:
                   type: string
                   default: unknown
+                  description: >-
+                    Extensible platform identifier. Push platforms are
+                    declared by installed plugin packages discovered at
+                    build time (e.g. `huawei`, `apple`); `web` and `unknown`
+                    are core non-push client semantics. A non-empty platform
+                    string that is not declared by any plugin package is
+                    rejected with 409 `plugin-unavailable` (it is never
+                    silently coerced to `unknown`); non-string or empty
+                    values are rejected with 400. Stored values (including
+                    historical ones) are returned verbatim.
                 deviceUid:
                   type: string
                   description: Stable device unique identifier. Unique within one user.
@@ -1194,6 +1206,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /client/{id}:
     get:
@@ -1896,7 +1910,8 @@ paths:
         WebSocket endpoint for real-time message streaming. Heartbeat: clients
         keep the connection alive with a text `ping` frame, answered
         automatically with a text `pong` (Workers platform cannot send
-        protocol-level server pings; retained deviation). The text ping also refreshes
+        protocol-level server pings; retained deviation, see
+        spec compatibility notes §4). The text ping also refreshes
         client inactivity expiry (throttled, ~5 minutes).
       operationId: streamMessages
       security:
@@ -2208,16 +2223,18 @@ paths:
   /admin/quotas/{namespace}/users:
     get:
       tags: [admin, plugin]
-      summary: List enabled AI task plugin quota rows
+      summary: List enabled quota rows for a declared namespace
       description: |
         Admin only (Basic admin or admin client token; elevation is not
-        required). v1 accepts only the `ai` namespace. Returns one row per
-        enabled task plugin instance declaring the `ai` quota namespace with its default limit,
-        per-user override (`null` when absent), effective limit, raw usage
-        counters and `usageToday` computed for the current UTC day. KV or usage
-        read failures return 503 for the whole response (no partial success).
-        Secrets, prompts, message content and raw configuration are never
-        returned.
+        required). The namespace set is derived from plugin package manifests
+        (declared by task plugin package manifests); a namespace
+        without any declaring module returns 400. Returns one row per enabled
+        plugin instance of all modules declaring the namespace, with its
+        default limit, per-user override (`null` when absent), effective limit,
+        raw usage counters and `usageToday` computed for the current UTC day.
+        KV or usage read failures return 503 for the whole response (no partial
+        success). Secrets, prompts, message content and raw configuration are
+        never returned.
       operationId: listAdminQuotas
       security:
         - ClientToken: []
@@ -2226,13 +2243,14 @@ paths:
         - name: namespace
           in: path
           required: true
-          description: Quota namespace (v1 only `ai`).
+          description: >
+            Quota namespace declared by plugin manifests (currently only `ai`).
           schema:
             type: string
             enum: [ai]
       responses:
         '200':
-          description: Quota rows for enabled AI task plugin instances
+          description: Quota rows for enabled instances of all modules declaring the namespace
           content:
             application/json:
               schema:
@@ -2251,12 +2269,14 @@ paths:
       tags: [admin, plugin]
       summary: Set or clear a user quota override
       description: |
-        Admin only. v1 accepts only the `ai` namespace. `limit` must be a
-        non-negative safe integer or `null`: a positive value sets the daily
-        limit, `0` disables the user, and `null` deletes the override so the
-        effective limit falls back to `system_state.ai_user_daily_limit`.
-        The override is stored in `QUOTA_KV` under `ai:limit:<userId>`; storage
-        failures return 503. User self-service is not supported.
+        Admin only. The namespace set is derived from plugin package manifests
+        (currently only `ai`); a namespace without any declaring module returns
+        400. `limit` must be a non-negative safe integer or `null`: a positive
+        value sets the daily limit, `0` disables the user, and `null` deletes
+        the override so the effective limit falls back to
+        `system_state.ai_user_daily_limit`. The override is stored in
+        `QUOTA_KV` under `ai:limit:<userId>`; storage failures return 503.
+        User self-service is not supported.
       operationId: setAdminQuotaOverride
       security:
         - ClientToken: []
@@ -2265,7 +2285,8 @@ paths:
         - name: namespace
           in: path
           required: true
-          description: Quota namespace (v1 only `ai`).
+          description: >
+            Quota namespace declared by plugin manifests (currently only `ai`).
           schema:
             type: string
             enum: [ai]
@@ -2526,6 +2547,11 @@ components:
           type: string
         platform:
           type: string
+          description: >-
+            Extensible platform identifier (free string). Push platforms come
+            from plugin package declarations (`huawei`, `apple`, ...), `web`
+            and `unknown` are core semantics, and historical rows may carry
+            any legacy value; all stored values are returned verbatim.
         deviceUid:
           type: string
           nullable: true
@@ -2760,6 +2786,7 @@ components:
             - provider-timeout
             - provider-network
             - provider-invalid-envelope
+            - provider-reasoning-budget
             - invalid-output
             - outbound-blocked
             - downstream-rejected

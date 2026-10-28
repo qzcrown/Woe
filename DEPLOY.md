@@ -12,24 +12,27 @@ npm --prefix frontend ci
 npx wrangler login
 npx wrangler d1 create woe-db
 npx wrangler r2 bucket create woe-storage
+npx wrangler kv namespace create woe-quota
 npx wrangler queues create woe-plugin-jobs
 ```
 
-记录 D1 UUID。首次部署会按 DO 的 [[migrations]] 创建 MessageStreamHubObject，无需手工创建。Images 使用 Worker binding，不需创建 Images 图片存储资源。
+记录 D1 UUID 与 KV namespace ID。首次部署会按 DO 的 [[migrations]] 创建 MessageStreamHubObject，无需手工创建。Images 使用 Worker binding，不需创建 Images 图片存储资源。
 
-## 2. 配置 wrangler.toml
+## 2. 配置 wrangler.resources.json
 
 ```bash
-cp example.wrangler.toml wrangler.toml
+cp resources.json wrangler.resources.json
 ```
 
-必改 database_id 为真实 UUID，bucket_name 与实际 R2 桶一致；选择 workers_dev=true 或配置 [[routes]] 自定义域名。默认模板未开放 workers.dev，不能同时不配置路由。
+把各环境的 databaseId（D1 UUID）、bucketName（R2 桶名）、kv.quota-kv 的 id（KV namespace ID）替换为真实值；workerName 与目标环境（production/staging）按需调整。staging 预置了 WEBHOOKER_ALLOW_HTTP=true 仅作示例，production 不要放开。
 
-模板保留 DB/R2/IMAGES/ASSETS/MESSAGE_STREAM_HUB，以及 Webhooker 所需的 PLUGIN_JOB_QUEUE producer/consumer。队列参数 max_batch_size=1、max_retries=2、max_concurrency=1：首次加两次重试共三次尝试。并发限制不保证投递顺序或恰好一次。
+部署输入不是手写 `wrangler.toml`：`npm run wrangler -- <command>`（或经 `npm run deploy`/`npm run dev` 间接调用）按目标环境生成 `wrangler.generated.json` 与 `.wrangler/deploy/config.json` 后调用官方 Wrangler；显式 `--config` 由包装器独占。`template.toml` 是按当前包集合确定性生成的只读示意（`node scripts/plugins/renderWranglerExample.mjs --check` 防漂移），部署不消费它。
 
-队列默认名 woe-plugin-jobs；若改名，producer、consumer 和 [vars].PLUGIN_JOB_QUEUE_NAME 必须同步。名称不匹配会在未知队列分支被确认丢弃。当前默认功能不需要 Workers AI（AI binding）、QUOTA_KV 或推送队列（PUSH_QUEUE）；若以后扩展任务/配额/provider，再按其声明补齐资源和对应队列名变量。
+绑定随实际插件包集合生成：本包保留 DB/R2/QUOTA_KV/IMAGES/ASSETS/MESSAGE_STREAM_HUB，以及 Webhooker 所需的 PLUGIN_JOB_QUEUE producer/consumer。QUOTA_KV 是 core 必需绑定（配额覆盖存储），不是可选扩展。队列参数 max_batch_size=1、max_retries=2、max_concurrency=1：首次加两次重试共三次尝试。并发限制不保证投递顺序或恰好一次。默认功能不需要 Workers AI（AI binding）或推送队列（PUSH_QUEUE）；若以后在 src/plugins/builtin/ 下加入声明这些能力的插件包，再按其 manifest 补齐资源映射与对应队列名变量。
 
-REGISTRATION 默认 false。保留模板的 SQL 文本模块 rules、DO 迁移历史与 cron；daily cron 清理创建已超30天的终态 Plugin Jobs，将未终态且创建已超24h的 pending 标为 dead，不兜底补发 Job Queue。通用 push core 和历史表仍保留。
+队列默认名 woe-plugin-jobs（resources.json 的 plugin-jobs 映射）；若改名，映射与派生的 [vars].PLUGIN_JOB_QUEUE_NAME 必须同步。名称不匹配会在未知队列分支被确认丢弃。
+
+REGISTRATION 默认 false。保留 DO 迁移历史与 cron；daily cron 清理创建已超30天的终态 Plugin Jobs，将未终态且创建已超24h的 pending 标为 dead，不兜底补发 Job Queue。通用 push core 和历史表仍保留。
 
 ## 3. 设置 Secrets
 
@@ -50,11 +53,11 @@ openssl rand -base64 32 | npx wrangler secret put PLUGIN_SECRET_MASTER_KEY
 
 ```bash
 npm run build:frontend
-npx wrangler deploy --dry-run
+npm run wrangler -- deploy --dry-run
 npm run deploy
 ```
 
-build:frontend 含类型检查并输出根 public/；deploy 刷新 buildInfo 后部署，但不自动重建前端。裸 npx wrangler deploy 不会刷新 buildInfo。dry-run 只验证打包/配置解析，不创建或验收真实资源。
+build:frontend 含类型检查并输出根 public/；deploy 先经包装器刷新生成配置再部署，但不自动重建前端。裸 npx wrangler deploy 缺少生成配置会被指纹校验拒绝。dry-run 只验证打包/配置解析，不创建或验收真实资源。
 
 Worker 首次 HTTP 请求自动执行固定 0000_initial_schema 与后续增量迁移（包括0013_plugin_jobs）。空库无需 db:push 或手工导入基线；迁移失败返回503 DATABASE_MIGRATION_FAILED，详细原因在 Worker 日志。禁止删除 _migrations 或重复灌入基线解决不一致库。
 
@@ -110,7 +113,7 @@ npm run build:frontend
 npm run deploy
 ```
 
-部署前逐段合并新模板，保留原DB/R2、DO迁移、路由、Secrets及cron。由旧displayer版升级，需创建Plugin Jobs Queue并设置插件主密钥，再创建/授权/配置/启用Webhooker；不会自动建立实例。旧同步Webhooker升级后变为异步尽力投递，URL/空YAML/字段类型校验更严格，需测试下游兼容。
+升级前核对 wrangler.resources.json 与新版 resources.json 模板的差异，保留原有真实 ID/名称、Secrets 及自定义环境映射；template.toml 若有变化仅作参考（它是生成示意，不是部署输入）。由旧displayer版升级，需创建Plugin Jobs Queue并设置插件主密钥，再创建/授权/配置/启用Webhooker；不会自动建立实例。旧同步Webhooker升级后变为异步尽力投递，URL/空YAML/字段类型校验更严格，需测试下游兼容。
 
 未包含插件的配置行不自动删除，实例不可加载。旧push_outbox/队列不自动清空：没有provider时有效pending可持续挂起；需保留待恢复或经过审阅人工终止，不能误称自动清理。保留迁移链与设备兼容字段，不自动删历史数据。
 

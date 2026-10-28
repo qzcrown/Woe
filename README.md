@@ -6,17 +6,19 @@ Gotify 兼容的自托管通知服务，运行在 Cloudflare Workers，提供消
 
 完整步骤见 [部署指南](DEPLOY.md)，英文见 [English deployment guide](DEPLOY.en.md)。
 
-需要 Node.js ≥22.12、Cloudflare 账号、D1、R2、Images、Durable Object，以及 Webhooker 的 Plugin Jobs Queue 与插件主密钥。
+需要 Node.js ≥22.12、Cloudflare 账号、D1、R2、KV（配额覆盖存储 QUOTA_KV）、Images、Durable Object，以及 Webhooker 的 Plugin Jobs Queue 与插件主密钥。
 
 ```bash
 npm ci
 npm --prefix frontend ci
 npx wrangler login
-cp example.wrangler.toml wrangler.toml
-# 先按 DEPLOY 创建资源、修改实际 ID/域名并设置 Secrets
+cp resources.json wrangler.resources.json
+# 先按 DEPLOY 修改 wrangler.resources.json 中的实际资源 ID/名称并设置 Secrets
 npm run build:frontend
 npm run deploy
 ```
+
+部署不经由手写 `wrangler.toml`：`npm run wrangler -- <command>` 会按目标环境生成 `wrangler.generated.json` 后调用官方 Wrangler；`template.toml` 是按当前包集合确定性生成的只读示意（`node scripts/plugins/renderWranglerExample.mjs --check` 防漂移）。资源 ID/名称等运维参数集中在 `wrangler.resources.json`。
 
 默认部署需要 QUOTA_KV 作为配额覆盖存储；如启用声明 AI provider 能力的插件，按其契约补齐绑定。
 

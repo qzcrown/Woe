@@ -14,13 +14,13 @@
 /// <reference types="node"/>
 
 import { parse } from 'yaml'
-import type { Env } from '../../src/types/index'
-import type { PluginContext } from '../../src/plugins/types'
-import type { PluginHostContext, PluginTask } from '../../src/plugins/jobs/types'
-import { OutboundHttpError } from '../../src/services/http/outboundPolicy'
+import type { Env } from '../../../../../../src/types/index'
+import type { PluginContext } from '../../../../../../src/plugins/types'
+import type { PluginHostContext, PluginTask } from '../../../../../../src/plugins/jobs/types'
+import { OutboundHttpError } from '../../../../../../src/services/http/outboundPolicy'
 import {
   createWebhookerDefinition
-} from '../../src/plugins/builtin/webhooker/definition'
+} from '../../../../../../src/plugins/builtin/webhooker/definition'
 
 
 const httpFetch = jest.fn()

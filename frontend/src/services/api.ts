@@ -18,9 +18,8 @@ import type {
   AvailablePlugin,
   MessageJobsResponse,
   TriggerMessageJobResponse,
-  AiQuotaListResponse,
+  QuotaListResponse,
 } from '@/types'
-import { QUOTA_NAMESPACE } from '@/utils/quota'
 import {
   ApiError,
   ValidationError,
@@ -30,6 +29,14 @@ import {
   InternalServerError,
 } from '@/types'
 import { authService } from '@/services/auth'
+
+
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    skipAuthRedirect?: boolean
+    sessionGuard?: () => boolean
+  }
+}
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/',
@@ -49,6 +56,9 @@ export const logoutHttpClient = axios.create({
 
 
 api.interceptors.request.use((config) => {
+  if (config.sessionGuard && !config.sessionGuard()) {
+    throw new axios.CanceledError('Plugin context expired')
+  }
   const configured = authService.applyAuth(config, config.url)
 
 
@@ -63,12 +73,19 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (axios.isCancel(error)) return Promise.reject(error)
 
 
-    const isCurrentSessionAuthFailure = authService.handleAuthError(error)
+    const skipAuthRedirect = Boolean((error.config as { skipAuthRedirect?: boolean } | undefined)?.skipAuthRedirect)
 
-    if (error.response?.status === 401 && isCurrentSessionAuthFailure) {
-      window.location.href = '/login'
+    if (!skipAuthRedirect) {
+
+
+      const isCurrentSessionAuthFailure = authService.handleAuthError(error)
+
+      if (error.response?.status === 401 && isCurrentSessionAuthFailure) {
+        window.location.href = '/login'
+      }
     }
 
 
@@ -156,6 +173,7 @@ export const authApi = {
 
   login: (username: string, password: string) => {
     return api.get('/current/user', {
+      skipAuthRedirect: true,
       auth: { username, password },
     })
   },
@@ -204,17 +222,17 @@ export const userApi = {
     api.delete(`/user/${id}/avatar`),
 
 
-  getUserApplications: (id: number) => api.get<Application[]>(`/user/${id}/applications`),
+  getUserApplications: (id: number, options?: PluginRequestOptions) => api.get<Application[]>(`/user/${id}/applications`, options),
 
-  getUserClients: (id: number) => api.get<Client[]>(`/user/${id}/clients`),
+  getUserClients: (id: number, options?: PluginRequestOptions) => api.get<Client[]>(`/user/${id}/clients`, options),
 
-  getUserPlugins: (id: number) => api.get<Plugin[]>(`/user/${id}/plugins`),
+  getUserPlugins: (id: number, options?: PluginRequestOptions) => api.get<Plugin[]>(`/user/${id}/plugins`, options),
 
 
-  getPluginPermissions: (id: number) => api.get<string[]>(`/user/${id}/plugin-permissions`),
+  getPluginPermissions: (id: number, options?: PluginRequestOptions) => api.get<string[]>(`/user/${id}/plugin-permissions`, options),
 
-  updatePluginPermissions: (id: number, modulePaths: string[]) =>
-    api.put<string[]>(`/user/${id}/plugin-permissions`, { modulePaths }),
+  updatePluginPermissions: (id: number, modulePaths: string[], options?: PluginRequestOptions) =>
+    api.put<string[]>(`/user/${id}/plugin-permissions`, { modulePaths }, options),
 
 
   setUserDisabled: (id: number, disabled: boolean) =>
@@ -358,75 +376,109 @@ export const messageApi = {
 
 
 
+
+
 export const messageJobsApi = {
 
-  trigger: (messageId: number, pluginId: number) =>
-    api.post<TriggerMessageJobResponse>(`/message/${messageId}/jobs`, { pluginId }),
+  trigger: (messageId: number, pluginId: number, options?: PluginRequestOptions) => {
+    const url = `/message/${messageId}/jobs`
+    return options === undefined
+      ? api.post<TriggerMessageJobResponse>(url, { pluginId })
+      : api.post<TriggerMessageJobResponse>(url, { pluginId }, options)
+  },
 
 
-  list: (messageId: number, pluginId?: number) =>
-    api.get<MessageJobsResponse>(
-      `/message/${messageId}/jobs`,
-      pluginId === undefined ? undefined : { params: { pluginId } }
-    ),
+  list: (messageId: number, pluginId?: number, options?: PluginRequestOptions) => {
+    const url = `/message/${messageId}/jobs`
+    if (pluginId === undefined && options === undefined) {
+      return api.get<MessageJobsResponse>(url)
+    }
+    return api.get<MessageJobsResponse>(url, {
+      ...(pluginId === undefined ? {} : { params: { pluginId } }),
+      ...options
+    })
+  },
 }
 
 
 export const adminQuotaApi = {
-  list: () => api.get<AiQuotaListResponse>(`/admin/quotas/${QUOTA_NAMESPACE}/users`),
+  list: (namespace: string, options?: PluginRequestOptions) => {
+    const url = `/admin/quotas/${namespace}/users`
+    return options === undefined
+      ? api.get<QuotaListResponse>(url)
+      : api.get<QuotaListResponse>(url, options)
+  },
 
 
-  setLimit: (userId: number, limit: number) =>
-    api.put(`/admin/quotas/${QUOTA_NAMESPACE}/${userId}`, { limit }),
+  setLimit: (namespace: string, userId: number, limit: number, options?: PluginRequestOptions) => {
+    const url = `/admin/quotas/${namespace}/${userId}`
+    return options === undefined
+      ? api.put(url, { limit })
+      : api.put(url, { limit }, options)
+  },
 
 
-  clearLimit: (userId: number) =>
-    api.put(`/admin/quotas/${QUOTA_NAMESPACE}/${userId}`, { limit: null }),
+  clearLimit: (namespace: string, userId: number, options?: PluginRequestOptions) => {
+    const url = `/admin/quotas/${namespace}/${userId}`
+    return options === undefined
+      ? api.put(url, { limit: null })
+      : api.put(url, { limit: null }, options)
+  },
+}
+
+export interface PluginRequestOptions {
+  signal?: AbortSignal
+  sessionGuard?: () => boolean
 }
 
 export const pluginApi = {
-  getPlugins: () => api.get<Plugin[]>('/plugin'),
+  getPlugins: (options?: PluginRequestOptions) =>
+    options === undefined
+      ? api.get<Plugin[]>('/plugin')
+      : api.get<Plugin[]>('/plugin', options),
 
-  getConfig: (id: number) => api.get<string>(`/plugin/${id}/config`, {
+  getConfig: (id: number, options?: PluginRequestOptions) => api.get<string>(`/plugin/${id}/config`, {
+    ...options,
     responseType: 'text' as any,
     headers: { 'Accept': 'application/x-yaml' }
   }),
 
-  updateConfig: (id: number, yaml: string) =>
-    api.post(`/plugin/${id}/config`, yaml, { headers: { 'Content-Type': 'application/x-yaml' } }),
+  updateConfig: (id: number, yaml: string, options?: PluginRequestOptions) =>
+    api.post(`/plugin/${id}/config`, yaml, { ...options, headers: { 'Content-Type': 'application/x-yaml' } }),
 
-  enable: (id: number) => api.post(`/plugin/${id}/enable`, {}),
+  enable: (id: number, options?: PluginRequestOptions) => api.post(`/plugin/${id}/enable`, {}, options),
 
-  disable: (id: number) => api.post(`/plugin/${id}/disable`, {}),
+  disable: (id: number, options?: PluginRequestOptions) => api.post(`/plugin/${id}/disable`, {}, options),
 
-  getDisplay: (id: number) => api.get<string>(`/plugin/${id}/display`),
-  getLogs: (id: number, limit?: number) => api.get<any[]>(`/plugin/${id}/logs`, { params: { limit } }),
-
-
-  updateName: (id: number, name: string) =>
-    api.put<{ name: string }>(`/plugin/${id}/name`, { name }),
+  getDisplay: (id: number, options?: PluginRequestOptions) => api.get<string>(`/plugin/${id}/display`, options),
+  getLogs: (id: number, limit?: number, options?: PluginRequestOptions) => api.get<any[]>(`/plugin/${id}/logs`, { ...options, params: { limit } }),
 
 
-  uploadImage: (id: number, file: File) => {
+  updateName: (id: number, name: string, options?: PluginRequestOptions) =>
+    api.put<{ name: string }>(`/plugin/${id}/name`, { name }, options),
+
+
+  uploadImage: (id: number, file: File, options?: PluginRequestOptions) => {
     const formData = new FormData()
     formData.append('file', file)
     return api.post<{ icon: string }>(`/plugin/${id}/image`, formData, {
+      ...options,
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
 
 
-  deleteImage: (id: number) => api.delete(`/plugin/${id}/image`),
+  deleteImage: (id: number, options?: PluginRequestOptions) => api.delete(`/plugin/${id}/image`, options),
 
 
-  createPlugin: (modulePath: string, name: string, targetUserId?: number) =>
-    api.post<Plugin>('/plugin', { modulePath, name, targetUserId }),
+  createPlugin: (modulePath: string, name: string, targetUserId?: number, options?: PluginRequestOptions) =>
+    api.post<Plugin>('/plugin', { modulePath, name, targetUserId }, options),
 
 
-  deletePlugin: (id: number) => api.delete(`/plugin/${id}`),
+  deletePlugin: (id: number, options?: PluginRequestOptions) => api.delete(`/plugin/${id}`, options),
 
 
-  getAvailablePlugins: () => api.get<AvailablePlugin[]>('/plugin/available'),
+  getAvailablePlugins: (options?: PluginRequestOptions) => api.get<AvailablePlugin[]>('/plugin/available', options),
 }
 
 export const systemApi = {

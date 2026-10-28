@@ -42,10 +42,8 @@ import BaseModal from './BaseModal.vue'
 import { clientApi } from '@/services/api'
 import { authService, clientTokenStorageKey } from '@/services/auth'
 import { showError } from '@/utils/errorHandler'
+import { useCopyFeedback } from '@/composables/useCopyFeedback'
 import { derivePublicForm, isEnhancedTokenForm } from '@/utils/enhancedToken'
-
-
-const COPY_FEEDBACK_MS = 1500
 
 const { t } = useI18n()
 
@@ -57,29 +55,21 @@ const error = ref('')
 
 
 const createdToken = ref('')
-const copied = ref(false)
 
 
 let disposed = false
 
 let closeEmitted = false
 
-let copySequence = 0
-let copyTimer: ReturnType<typeof setTimeout> | null = null
-
 const ownerSession = authService.getSessionRevision()
 const ownerClientToken = authService.getClientCredentialForRevocation()
 
-const clearCopyFeedback = (): void => {
-
-
-  copySequence += 1
-  if (copyTimer) {
-    clearTimeout(copyTimer)
-    copyTimer = null
-  }
-  copied.value = false
-}
+const { copied, copyText, clearCopyFeedback } = useCopyFeedback({
+  isCurrent: () => ensureOwnerSession(),
+  errorTitle: () => t('clients.copyTokenError'),
+  clearOnError: true,
+  onExpiry: () => ensureOwnerSession()
+})
 
 const onClose = (): void => {
 
@@ -105,35 +95,8 @@ const ensureOwnerSession = (): boolean => {
 }
 
 
-
-
-
-
-
-
-const copyCreatedToken = async (): Promise<void> => {
-  if (!ensureOwnerSession()) return
-  const token = createdToken.value
-  if (!token) return
-  const seq = ++copySequence
-  const lostOwnership = (): boolean =>
-    !ensureOwnerSession() || copySequence !== seq
-  try {
-    await navigator.clipboard.writeText(token)
-  } catch (err) {
-    if (lostOwnership()) return
-    clearCopyFeedback()
-    showError(err as Error, t('clients.copyTokenError'))
-    return
-  }
-  if (lostOwnership()) return
-  if (copyTimer) clearTimeout(copyTimer)
-  copied.value = true
-  copyTimer = setTimeout(() => {
-    copyTimer = null
-    if (!ensureOwnerSession()) return
-    copied.value = false
-  }, COPY_FEEDBACK_MS)
+const copyCreatedToken = (): void => {
+  if (createdToken.value) void copyText(createdToken.value)
 }
 
 
@@ -194,11 +157,12 @@ onBeforeUnmount(() => {
 .title { margin: 0; font-size: 1.125rem; font-weight: 600; }
 .form { display: flex; flex-direction: column; gap: 0.75rem; }
 .field { display: flex; flex-direction: column; gap: 0.375rem; }
-.field span { color: #374151; font-size: 0.875rem; }
-input { border: 1px solid #e5e7eb; border-radius: 0.375rem; padding: 0.5rem; font-size: 0.875rem; }
-.error { color: #b91c1c; font-size: 0.875rem; }
-.btn { padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; cursor: pointer; background: #e5e7eb; }
-.btn.primary { background: #10b981; color: white; }
+.field span { color: var(--color-text-primary); font-size: 0.875rem; }
+input { border: 1px solid var(--color-border-secondary); border-radius: 0.375rem; padding: 0.5rem; font-size: 0.875rem; }
+.error { color: var(--color-error-text); font-size: 0.875rem; }
+.btn { padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; cursor: pointer; background: var(--color-bg-active); }
+.btn.primary { background: var(--color-success); color: var(--color-text-inverse); }
+.btn.primary:hover:not(:disabled) { background: var(--color-success-hover); }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .token-reveal { display: flex; flex-direction: column; gap: 0.5rem; }
 .token-label { margin: 0; color: var(--color-text-secondary); font-size: 0.875rem; }

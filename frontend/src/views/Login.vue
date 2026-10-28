@@ -2,8 +2,11 @@
   <div class="login-container">
     <div class="login-card">
       <div class="login-header">
-        <h1>{{ $t('login.title') }}</h1>
-        <p>{{ $t('login.subtitle') }}</p>
+        <div class="brand-row">
+          <h1>{{ $t('login.title') }}</h1>
+          <span class="brand-stamp">{{ $t('login.selfHosted') }}</span>
+        </div>
+        <p class="brand-eyebrow">{{ $t('login.brandEyebrow') }}</p>
       </div>
 
   <form @submit.prevent="handleLogin" class="login-form">
@@ -39,6 +42,8 @@
           {{ loading ? $t('login.loggingIn') : $t('common.login') }}
         </button>
       </form>
+
+      <p class="brand-foot">{{ $t('login.brandFoot') }}</p>
     </div>
   </div>
 </template>
@@ -84,39 +89,83 @@ const handleLogin = async () => {
 </script>
 
 <style scoped>
+
 .login-container {
+  --login-dot: rgba(148, 163, 184, 0.38);
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: var(--color-bg-secondary);
+  background-image: radial-gradient(var(--login-dot) 1px, transparent 1px);
+  background-size: 18px 18px;
   padding: 1rem;
 }
 
+:global([data-theme="dark"] .login-container) {
+  --login-dot: rgba(94, 182, 208, 0.09);
+}
+
 .login-card {
+  position: relative;
   background: var(--color-bg-primary);
   padding: 2rem;
-  border-radius: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-border-primary);
   box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 400px;
 }
 
+
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: 18px;
+  right: 18px;
+  border-top: 2px dashed var(--color-border-secondary);
+}
+
 .login-header {
-  text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1.75rem;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .login-header h1 {
   color: var(--color-text-primary);
-  font-size: 2.5rem;
+  font-size: 1.5rem;
   font-weight: bold;
-  margin-bottom: 0.5rem;
+  letter-spacing: 0.02em;
+  margin: 0;
 }
 
-.login-header p {
+
+.brand-stamp {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--color-primary);
+  border: 1.5px solid var(--color-primary);
+  border-radius: 0.25rem;
+  padding: 0.2rem 0.45rem;
+  transform: rotate(4deg);
+  opacity: 0.9;
+  white-space: nowrap;
+}
+
+.brand-eyebrow {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
   color: var(--color-text-tertiary);
-  font-size: 1rem;
+  margin: 0.5rem 0 0;
 }
 
 .login-form {
@@ -189,13 +238,23 @@ const handleLogin = async () => {
   cursor: not-allowed;
 }
 
+.brand-foot {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  color: var(--color-text-tertiary);
+  margin: 1.5rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border-primary);
+}
+
 @media (max-width: 480px) {
   .login-card {
     padding: 1.5rem;
   }
 
   .login-header h1 {
-    font-size: 2rem;
+    font-size: 1.35rem;
   }
 }
 </style>

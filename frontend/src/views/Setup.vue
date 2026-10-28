@@ -6,13 +6,13 @@
 
       <form @submit.prevent="submit" class="setup-form">
         <div class="form-group">
-          <label for="initUser">{{ $t('setup.initToken') }} {{ $t('common.username') }}</label>
-          <input id="initUser" v-model="initUser" type="text" required :disabled="loading" :placeholder="$t('setup.initToken') + ' ' + $t('common.username')" />
+          <label for="initUser">{{ $t('setup.initTokenUsername') }}</label>
+          <input id="initUser" v-model="initUser" type="text" required :disabled="loading" :placeholder="$t('setup.initTokenUsername')" />
         </div>
 
         <div class="form-group">
-          <label for="initPass">{{ $t('setup.initToken') }} {{ $t('common.password') }}</label>
-          <input id="initPass" v-model="initPass" type="password" required :disabled="loading" :placeholder="$t('setup.initToken') + ' ' + $t('common.password')" />
+          <label for="initPass">{{ $t('setup.initTokenPassword') }}</label>
+          <input id="initPass" v-model="initPass" type="password" required :disabled="loading" :placeholder="$t('setup.initTokenPassword')" />
         </div>
         <div class="form-group">
           <label for="name">{{ $t('setup.adminUser') }}</label>
@@ -82,15 +82,17 @@ const submit = async () => {
 </script>
 
 <style scoped>
-.setup-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f3f4f6; padding: 1rem; }
-.setup-card { background: #fff; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 20px rgba(0,0,0,0.08); width: 100%; max-width: 460px; }
-.desc { color: #6b7280; margin-bottom: 1rem; }
+.setup-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--color-bg-secondary); padding: 1rem; transition: var(--theme-transition); }
+.setup-card { background: var(--color-bg-primary); padding: 2rem; border-radius: 1rem; box-shadow: var(--shadow-lg); width: 100%; max-width: 460px; transition: var(--theme-transition); }
+.desc { color: var(--color-text-tertiary); margin-bottom: 1rem; }
 .setup-form { display: flex; flex-direction: column; gap: 1rem; }
 .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
-label { color: #374151; font-weight: 500; }
-input { padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-size: 1rem; }
-.error { color: #b91c1c; background: #fee2e2; border: 1px solid #fecaca; padding: 0.5rem; border-radius: 0.375rem; }
-.success { color: #065f46; background: #d1fae5; border: 1px solid #a7f3d0; padding: 0.5rem; border-radius: 0.375rem; }
-.setup-btn { padding: 0.75rem 1.5rem; background: #10b981; color: #fff; border: none; border-radius: 0.375rem; font-size: 1rem; cursor: pointer; }
-.setup-btn:hover { background: #059669; }
+label { color: var(--color-text-primary); font-weight: 500; }
+input { padding: 0.75rem; border: 1px solid var(--color-border-secondary); border-radius: 0.375rem; font-size: 1rem; background: var(--color-bg-primary); color: var(--color-text-primary); transition: var(--transition-interactive); }
+input:focus { outline: none; border-color: var(--color-border-focus); box-shadow: 0 0 0 3px var(--color-primary-light); }
+.error { color: var(--color-error); background: var(--color-error-bg); border: 1px solid var(--color-error); padding: 0.5rem; border-radius: 0.375rem; }
+.success { color: var(--color-success); background: var(--color-success-bg); border: 1px solid var(--color-success); padding: 0.5rem; border-radius: 0.375rem; }
+.setup-btn { padding: 0.75rem 1.5rem; background: var(--color-primary); color: var(--color-text-inverse); border: none; border-radius: 0.375rem; font-size: 1rem; cursor: pointer; transition: var(--transition-interactive); }
+.setup-btn:hover:not(:disabled) { background: var(--color-primary-hover); }
+.setup-btn:disabled { background: var(--color-text-muted); cursor: not-allowed; }
 </style>

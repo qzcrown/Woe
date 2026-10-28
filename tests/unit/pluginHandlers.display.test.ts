@@ -3,9 +3,11 @@ jest.mock("file-type", () => ({
 }), { virtual: true });
 
 const mockResolve = jest.fn();
+const mockHas = jest.fn();
 
 jest.mock("../../src/plugins/registry.ts", () => ({
-  resolve: (...args: unknown[]) => mockResolve(...args)
+  resolve: (...args: unknown[]) => mockResolve(...args),
+  has: (modulePath: string) => mockHas(modulePath)
 }));
 
 import { PluginHandlers } from "../../src/handlers/pluginHandlers";
@@ -24,6 +26,8 @@ function createDisplayDrizzleMock(pluginRow: Record<string, unknown> | null) {
 describe("PluginHandlers display contract", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+
+    mockHas.mockReturnValue(true);
   });
 
   test("returns 403 when plugin is disabled", async () => {
@@ -107,5 +111,25 @@ describe("PluginHandlers display contract", () => {
 
     expect(response.status).toBe(500);
     expect(body.errorCode).toBe(500);
+  });
+
+  test("returns 409 plugin-unavailable when module is missing from registry", async () => {
+    mockHas.mockReturnValue(false);
+    const drizzle = createDisplayDrizzleMock({
+      id: 5,
+      name: "Ghost Displayer",
+      modulePath: "test/ghost-module",
+      enabled: 1,
+      configYaml: "apiKey: sk-legacy\n"
+    });
+    const handlers = new PluginHandlers(drizzle);
+
+    const response = await handlers.getPluginDisplay(7, "5");
+    const body = await response.json() as { errorCode: string };
+
+    expect(response.status).toBe(409);
+    expect(body.errorCode).toBe("plugin-unavailable");
+
+    expect(mockResolve).not.toHaveBeenCalled();
   });
 });

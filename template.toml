@@ -1,0 +1,95 @@
+# Woe - Cloudflare Workers Configuration Example
+# ===============================================
+# 本文件由 scripts/plugins/renderWranglerExample.mjs 从 coreResources.json、实际包
+# fragment 与 resources.json 确定性生成（--check 防漂移），不要手改。
+# 部署输入不经本文件：`npm run wrangler -- ...` 会按目标环境（-e/--env/CLOUDFLARE_ENV，
+# 缺省 production）生成 wrangler.generated.json 与 .wrangler/deploy/config.json 官方
+# 重定向后调用 Wrangler；原生 npx wrangler 只能消费已生成配置，指纹过期即失败。
+# 资源 ID/名称等运维参数在 resources.json（复制为
+# wrangler.resources.json 后填写真实值）。
+
+name = "woe"  # Worker 名称：只取 production 运维映射，无环境后缀拼接
+main = "src/index.ts"  # Worker 入口
+compatibility_date = "2025-11-28"  # Workers 兼容日期
+workers_dev = false  # false = 仅自定义域，不启用 *.workers.dev
+# 生成的部署配置带 targetEnvironment = "production"（模板仅注释示意）；原生 Wrangler 经官方重定向消费时会校验请求环境与构建环境一致
+
+# 原生 Wrangler 的 custom build 只校验生成指纹，过期即失败并提示 `npm run wrangler -- ...`
+[build]
+command = "node scripts/plugins/assertGenerated.mjs"
+
+# 静态资产：构建后的前端文件（npm run build:frontend 输出到 public/）
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# 环境变量（[vars]）：core 默认值 + 包声明 + 目标环境运维映射的合并结果。
+# Secret 一律不得放入 [vars]，只允许 wrangler secret put：
+#   wrangler secret put DEFAULT_ADMIN_PASSWORD
+#   wrangler secret put PLUGIN_SECRET_MASTER_KEY
+[vars]
+ENVIRONMENT = "production"
+DEFAULT_ADMIN_USER = "admin"
+REGISTRATION = false
+PLUGIN_SECRET_KEY_VERSION = "1"
+PLUGIN_JOB_QUEUE_NAME = "woe-plugin-jobs"
+# PLUGIN_JOB_QUEUE_NAME/PUSH_QUEUE_NAME 由启用队列的环境映射自动派生，无需手工同步。
+# plugin-jobs 与 push 两种用途的实际队列不能同名；移除队列时同步移除对应变量。
+# D1 数据库：wrangler d1 create <database_name> 后填真实 database_id
+[[d1_databases]]
+binding = "DB"
+database_name = "woe-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+# R2 桶：应用图标等上传存储
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "woe-storage"
+# Workers Images：服务端图片压缩/转写
+[images]
+binding = "IMAGES"
+# KV：配额覆盖存储（键 ai:limit:<userId>）
+[[kv_namespaces]]
+binding = "QUOTA_KV"
+id = "REPLACE_WITH_QUOTA_KV_ID"
+
+# Durable Object：实时消息流 hub
+[durable_objects]
+bindings = [
+  { name = "MESSAGE_STREAM_HUB", class_name = "MessageStreamHubObject" }
+]
+
+# 队列按实际包声明条件生成：push 包声明 Push Queue，任务包（如 Webhooker）声明
+# Plugin Jobs Queue；两者必须不同名（Worker 的 queue() 按 batch.queue 精确分流）。
+[[queues.producers]]
+binding = "PLUGIN_JOB_QUEUE"
+queue = "woe-plugin-jobs"
+[[queues.consumers]]
+queue = "woe-plugin-jobs"
+max_batch_size = 1
+max_batch_timeout = 5
+max_retries = 2
+max_concurrency = 1
+# Durable Object 迁移（历史已发布，不得改写）
+[[migrations]]
+tag = "v1_message_stream_hub"
+new_sqlite_classes = ["MessageStreamHubObject"]
+# 迁移 SQL 以 Text 规则打包进 Worker
+[[rules]]
+type = "Text"
+globs = ["**/*.sql"]
+fallthrough = true
+
+# 可观测性：logs/traces 全量采样并持久化（Workers Traces）
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+persist = true
+
+# 定时任务：插件日志/任务清理与推送对账（无队列时通用清理仍保留）
+[triggers]
+crons = ["0 2 * * *"]

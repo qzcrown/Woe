@@ -6,17 +6,19 @@ A self-hosted Gotify-compatible notification service on Cloudflare Workers, with
 
 Follow the [English deployment guide](DEPLOY.en.md) or [中文部署指南](DEPLOY.md).
 
-Use Node.js ≥22.12, a Cloudflare account, D1, R2, Images, a Durable Object, and the Plugin Jobs Queue and master key required by Webhooker.
+Use Node.js ≥22.12, a Cloudflare account, D1, R2, a KV namespace (quota override storage QUOTA_KV), Images, a Durable Object, and the Plugin Jobs Queue and master key required by Webhooker.
 
 ```bash
 npm ci
 npm --prefix frontend ci
 npx wrangler login
-cp example.wrangler.toml wrangler.toml
-# Create resources, replace IDs/routes and set Secrets as described in DEPLOY.en.md
+cp resources.json wrangler.resources.json
+# Fill real resource IDs/names in wrangler.resources.json and set Secrets as described in DEPLOY.en.md
 npm run build:frontend
 npm run deploy
 ```
+
+Deployment does not use a hand-written `wrangler.toml`: `npm run wrangler -- <command>` generates `wrangler.generated.json` per target environment before invoking Wrangler. `template.toml` is a deterministic read-only illustration rendered from the current package set (`node scripts/plugins/renderWranglerExample.mjs --check` guards drift). Operational resource IDs/names live in `wrangler.resources.json`.
 
 The default deployment requires QUOTA_KV for quota overrides; add bindings only for enabled extensions that declare the corresponding capabilities.
 

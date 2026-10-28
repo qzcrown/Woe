@@ -1,6 +1,11 @@
 
 
 
+import i18n from '@/locales'
+
+
+const t = (key: string, params?: Record<string, unknown>): string =>
+  i18n.global.t(key, params ?? {})
 
 export interface PasswordValidationResult {
   isValid: boolean
@@ -55,18 +60,18 @@ export function validatePassword(
 
 
   if (!password || password.length === 0) {
-    errors.push('Password is required')
+    errors.push(t('validation.passwordRequired'))
     return { isValid: false, errors, strength: 'weak', score: 0 }
   }
 
   if (password.length < minLength) {
-    errors.push(`Password must be at least ${minLength} characters long`)
+    errors.push(t('validation.passwordMinLength', { min: minLength }))
   } else {
     score += 20
   }
 
   if (password.length > maxLength) {
-    errors.push(`Password must not exceed ${maxLength} characters`)
+    errors.push(t('validation.passwordMaxLength', { max: maxLength }))
   }
 
 
@@ -76,16 +81,16 @@ export function validatePassword(
   const hasSpecialChars = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
 
   if (requireUppercase && !hasUppercase) {
-    errors.push('Password must contain at least one uppercase letter')
+    errors.push(t('validation.passwordUppercase'))
   }
   if (requireLowercase && !hasLowercase) {
-    errors.push('Password must contain at least one lowercase letter')
+    errors.push(t('validation.passwordLowercase'))
   }
   if (requireNumbers && !hasNumbers) {
-    errors.push('Password must contain at least one number')
+    errors.push(t('validation.passwordNumber'))
   }
   if (requireSpecialChars && !hasSpecialChars) {
-    errors.push('Password must contain at least one special character')
+    errors.push(t('validation.passwordSpecial'))
   }
 
 
@@ -102,26 +107,26 @@ export function validatePassword(
   if (forbidCommonPasswords) {
     const lowerPassword = password.toLowerCase()
     if (COMMON_PASSWORDS.includes(lowerPassword)) {
-      errors.push('This password is too common and easily guessed')
+      errors.push(t('validation.passwordTooCommon'))
       score = Math.max(0, score - 30)
     }
   }
 
 
   if (forbidUsername && password.toLowerCase().includes(forbidUsername.toLowerCase())) {
-    errors.push('Password must not contain your username')
+    errors.push(t('validation.passwordContainsUsername'))
     score = Math.max(0, score - 20)
   }
 
 
   if (/(.)\1{2,}/.test(password)) {
-    errors.push('Password contains too many repeated characters')
+    errors.push(t('validation.passwordRepeatedChars'))
     score = Math.max(0, score - 10)
   }
 
 
   if (/(?:abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz|012|123|234|345|456|567|678|789)/i.test(password)) {
-    errors.push('Password contains sequential characters')
+    errors.push(t('validation.passwordSequentialChars'))
     score = Math.max(0, score - 10)
   }
 
@@ -163,11 +168,11 @@ export function getPasswordStrengthColor(strength: 'weak' | 'medium' | 'strong')
 export function getPasswordStrengthText(strength: 'weak' | 'medium' | 'strong'): string {
   switch (strength) {
     case 'weak':
-      return 'Weak'
+      return t('validation.strengthWeak')
     case 'medium':
-      return 'Medium'
+      return t('validation.strengthMedium')
     case 'strong':
-      return 'Strong'
+      return t('validation.strengthStrong')
   }
 }
 

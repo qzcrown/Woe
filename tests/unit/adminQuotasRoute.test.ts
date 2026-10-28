@@ -1,4 +1,3 @@
-import '../helpers/publicTaskFixture'
 
 
 
@@ -18,6 +17,24 @@ jest.mock('../../src/services/migrationRunner.ts', () => ({
   }
 }))
 
+
+
+
+
+
+let mockQuotaModulePaths: readonly string[] | null = null
+jest.mock('../../src/plugins/jobs/registry.ts', () => {
+  const actual = jest.requireActual('../../src/plugins/jobs/registry.ts')
+  return {
+    ...actual,
+    getQuotaNamespaces: () => ['route-quota'],
+    getQuotaNamespaceModulePaths: (namespace: string) => {
+      if (namespace !== 'route-quota') return []
+      return mockQuotaModulePaths ?? ['test/quota-module']
+    }
+  }
+})
+
 import app from '../../src/app'
 import { createPluginJobsTestDb } from '../helpers/pluginJobsTestDb'
 import { makeD1Sqlite } from '../helpers/d1Sqlite'
@@ -34,8 +51,9 @@ const USER_CLIENT_TOKEN = 'Cuser-token'
 const QUOTA_TASK_PLUGIN_ID = 10
 const DISABLED_QUOTA_TASK_PLUGIN_ID = 11
 const OTHER_MODULE_PLUGIN_ID = 12
+const QUOTA_MODULE = 'test/quota-module'
 
-const VALID_CONFIG = 'valid: true\n'
+const VALID_CONFIG = 'model: route-model\n'
 
 interface FixtureOptions {
   kv?: Record<string, string>
@@ -110,7 +128,7 @@ async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
         userId: ADMIN_ID,
         name: 'Quota Task',
         token: 'plugin-token-10',
-        modulePath: 'test/public-task',
+        modulePath: QUOTA_MODULE,
         configYaml: VALID_CONFIG,
         enabled: 1,
 
@@ -123,7 +141,7 @@ async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
         userId: ADMIN_ID,
         name: 'Disabled Quota Task',
         token: 'plugin-token-11',
-        modulePath: 'test/public-task',
+        modulePath: QUOTA_MODULE,
         configYaml: VALID_CONFIG,
         enabled: 0,
         usageDay: null,
@@ -134,7 +152,7 @@ async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
         userId: USER_ID,
         name: 'Other Plugin',
         token: 'plugin-token-12',
-        modulePath: 'builtin/webhooker',
+        modulePath: 'other/plugin',
         configYaml: 'apiKey: plaintext-key\n',
         enabled: 1,
         usageDay: null,
@@ -144,7 +162,7 @@ async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
     .run()
 
   testDb.sqlite
-    .prepare("INSERT INTO system_state (key, value) VALUES ('ai_user_daily_limit', '42')")
+    .prepare("INSERT INTO system_state (key, value) VALUES ('route-quota_user_daily_limit', '42')")
     .run()
 
   const kvStore = new Map<string, string>(Object.entries(options.kv ?? {}))
@@ -197,7 +215,7 @@ function seedExtraTagger(fx: Fixture, id: number, userId: number, token: string)
       userId,
       name: `Quota Task ${id}`,
       token,
-      modulePath: 'test/public-task',
+      modulePath: QUOTA_MODULE,
       configYaml: VALID_CONFIG,
       enabled: 1,
       usageDay: null,
@@ -209,36 +227,36 @@ function seedExtraTagger(fx: Fixture, id: number, userId: number, token: string)
 describe('admin quota authentication and namespace validation', () => {
   test('no credentials -> 401', async () => {
     const fx = await makeFixture()
-    const response = await fx.request('/admin/quotas/ai/users')
+    const response = await fx.request('/admin/quotas/route-quota/users')
     expect(response.status).toBe(401)
   })
 
   test('non-admin client token -> 403', async () => {
     const fx = await makeFixture()
-    const response = await fx.request('/admin/quotas/ai/users', { token: USER_CLIENT_TOKEN })
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: USER_CLIENT_TOKEN })
     expect(response.status).toBe(403)
   })
 
   test('non-admin Basic -> 403', async () => {
     const fx = await makeFixture()
-    const response = await fx.request('/admin/quotas/ai/users', { basic: ['alice', 'user-pass'] })
+    const response = await fx.request('/admin/quotas/route-quota/users', { basic: ['alice', 'user-pass'] })
     expect(response.status).toBe(403)
   })
 
   test('admin client token without elevation is allowed', async () => {
     const fx = await makeFixture()
-    const response = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
     expect(response.status).toBe(200)
   })
 
   test('Basic admin is allowed', async () => {
     const fx = await makeFixture()
-    const response = await fx.request('/admin/quotas/ai/users', { basic: ['root', 'admin-pass'] })
+    const response = await fx.request('/admin/quotas/route-quota/users', { basic: ['root', 'admin-pass'] })
     expect(response.status).toBe(200)
   })
 
   test('root path and /api/v1 both respond', async () => {
-    for (const path of ['/admin/quotas/ai/users', '/api/v1/admin/quotas/ai/users']) {
+    for (const path of ['/admin/quotas/route-quota/users', '/api/v1/admin/quotas/route-quota/users']) {
       const fx = await makeFixture()
       const response = await fx.request(path, { token: ADMIN_CLIENT_TOKEN })
       expect(response.status).toBe(200)
@@ -255,9 +273,9 @@ describe('admin quota authentication and namespace validation', () => {
 })
 
 describe('GET /admin/quotas/:namespace/users', () => {
-  test('lists only enabled quota task instances with full typed fields', async () => {
+  test('lists only enabled quota-task instances with full typed fields', async () => {
     const fx = await makeFixture()
-    const response = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
     expect(response.status).toBe(200)
 
     const body = await readJson(response)
@@ -284,8 +302,8 @@ describe('GET /admin/quotas/:namespace/users', () => {
   })
 
   test('override -> source=override and effectiveLimit=override', async () => {
-    const fx = await makeFixture({ kv: { [`ai:limit:${ADMIN_ID}`]: '5' } })
-    const response = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+    const fx = await makeFixture({ kv: { [`route-quota:limit:${ADMIN_ID}`]: '5' } })
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
     const row = (await readJson(response)).users[0]
 
     expect(row.overrideLimit).toBe(5)
@@ -300,7 +318,7 @@ describe('GET /admin/quotas/:namespace/users', () => {
       .prepare('UPDATE plugin_configs SET usage_day = ?, usage_count = 7 WHERE id = ?')
       .run(today, QUOTA_TASK_PLUGIN_ID)
 
-    const response = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
     const row = (await readJson(response)).users[0]
 
     expect(row.usageDay).toBe(today)
@@ -310,7 +328,7 @@ describe('GET /admin/quotas/:namespace/users', () => {
 
   test('KV read failure -> 503 (no partial success)', async () => {
     const fx = await makeFixture({ kvReadFails: true })
-    const response = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
 
     expect(response.status).toBe(503)
   })
@@ -323,7 +341,7 @@ describe('GET /admin/quotas/:namespace/users', () => {
 
     const readDefaultLimit = jest.spyOn(QuotaService.prototype as any, 'readDefaultLimit')
     try {
-      const response = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+      const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
       expect(response.status).toBe(200)
 
       const body = await readJson(response)
@@ -345,11 +363,11 @@ describe('GET /admin/quotas/:namespace/users', () => {
 
 
     fx.kvGet.mockImplementation(async (key: string) => {
-      if (key === `ai:limit:${USER_ID}`) throw new Error('kv read failed for one row')
+      if (key === `route-quota:limit:${USER_ID}`) throw new Error('kv read failed for one row')
       return null
     })
 
-    const response = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
 
     expect(response.status).toBe(503)
     expect(await readJson(response)).toMatchObject({ errorCode: 503 })
@@ -357,7 +375,7 @@ describe('GET /admin/quotas/:namespace/users', () => {
 
   test('response never leaks secrets, config or prompts', async () => {
     const fx = await makeFixture()
-    const response = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
     const serialized = JSON.stringify(await readJson(response))
 
     expect(serialized).not.toContain('super-secret-ciphertext')
@@ -372,7 +390,7 @@ describe('GET /admin/quotas/:namespace/users', () => {
 describe('PUT /admin/quotas/:namespace/:userId', () => {
   test('writes a positive override to QUOTA_KV and returns 200', async () => {
     const fx = await makeFixture()
-    const response = await fx.request(`/admin/quotas/ai/${ADMIN_ID}`, {
+    const response = await fx.request(`/admin/quotas/route-quota/${ADMIN_ID}`, {
       method: 'PUT',
       token: ADMIN_CLIENT_TOKEN,
       body: { limit: 500 }
@@ -380,21 +398,21 @@ describe('PUT /admin/quotas/:namespace/:userId', () => {
 
     expect(response.status).toBe(200)
     expect(await readJson(response)).toEqual({})
-    expect(fx.kvPut).toHaveBeenCalledWith(`ai:limit:${ADMIN_ID}`, '500')
-    expect(fx.kvStore.get(`ai:limit:${ADMIN_ID}`)).toBe('500')
+    expect(fx.kvPut).toHaveBeenCalledWith(`route-quota:limit:${ADMIN_ID}`, '500')
+    expect(fx.kvStore.get(`route-quota:limit:${ADMIN_ID}`)).toBe('500')
   })
 
   test('limit 0 disables the user and shows up in GET', async () => {
     const fx = await makeFixture()
-    const put = await fx.request(`/admin/quotas/ai/${ADMIN_ID}`, {
+    const put = await fx.request(`/admin/quotas/route-quota/${ADMIN_ID}`, {
       method: 'PUT',
       token: ADMIN_CLIENT_TOKEN,
       body: { limit: 0 }
     })
     expect(put.status).toBe(200)
-    expect(fx.kvStore.get(`ai:limit:${ADMIN_ID}`)).toBe('0')
+    expect(fx.kvStore.get(`route-quota:limit:${ADMIN_ID}`)).toBe('0')
 
-    const get = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+    const get = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
     const row = (await readJson(get)).users[0]
     expect(row.overrideLimit).toBe(0)
     expect(row.effectiveLimit).toBe(0)
@@ -402,18 +420,18 @@ describe('PUT /admin/quotas/:namespace/:userId', () => {
   })
 
   test('limit null clears the override and falls back to the default', async () => {
-    const fx = await makeFixture({ kv: { [`ai:limit:${ADMIN_ID}`]: '5' } })
-    const response = await fx.request(`/admin/quotas/ai/${ADMIN_ID}`, {
+    const fx = await makeFixture({ kv: { [`route-quota:limit:${ADMIN_ID}`]: '5' } })
+    const response = await fx.request(`/admin/quotas/route-quota/${ADMIN_ID}`, {
       method: 'PUT',
       token: ADMIN_CLIENT_TOKEN,
       body: { limit: null }
     })
 
     expect(response.status).toBe(200)
-    expect(fx.kvDelete).toHaveBeenCalledWith(`ai:limit:${ADMIN_ID}`)
-    expect(fx.kvStore.has(`ai:limit:${ADMIN_ID}`)).toBe(false)
+    expect(fx.kvDelete).toHaveBeenCalledWith(`route-quota:limit:${ADMIN_ID}`)
+    expect(fx.kvStore.has(`route-quota:limit:${ADMIN_ID}`)).toBe(false)
 
-    const get = await fx.request('/admin/quotas/ai/users', { token: ADMIN_CLIENT_TOKEN })
+    const get = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
     const row = (await readJson(get)).users[0]
     expect(row.overrideLimit).toBeNull()
     expect(row.effectiveLimit).toBe(42)
@@ -427,7 +445,7 @@ describe('PUT /admin/quotas/:namespace/:userId', () => {
     ['missing', {}]
   ])('invalid limit (%s) -> 400 and no write', async (_label, body) => {
     const fx = await makeFixture()
-    const response = await fx.request(`/admin/quotas/ai/${ADMIN_ID}`, {
+    const response = await fx.request(`/admin/quotas/route-quota/${ADMIN_ID}`, {
       method: 'PUT',
       token: ADMIN_CLIENT_TOKEN,
       body
@@ -439,7 +457,7 @@ describe('PUT /admin/quotas/:namespace/:userId', () => {
 
   test.each(['abc', '0', '-1'])('invalid userId %s -> 400', async (userId) => {
     const fx = await makeFixture()
-    const response = await fx.request(`/admin/quotas/ai/${userId}`, {
+    const response = await fx.request(`/admin/quotas/route-quota/${userId}`, {
       method: 'PUT',
       token: ADMIN_CLIENT_TOKEN,
       body: { limit: 5 }
@@ -464,14 +482,14 @@ describe('PUT /admin/quotas/:namespace/:userId', () => {
   test('non-admin -> 403; no credentials -> 401', async () => {
     const fx = await makeFixture()
 
-    const forbidden = await fx.request(`/admin/quotas/ai/${ADMIN_ID}`, {
+    const forbidden = await fx.request(`/admin/quotas/route-quota/${ADMIN_ID}`, {
       method: 'PUT',
       token: USER_CLIENT_TOKEN,
       body: { limit: 5 }
     })
     expect(forbidden.status).toBe(403)
 
-    const anonymous = await fx.request(`/admin/quotas/ai/${ADMIN_ID}`, {
+    const anonymous = await fx.request(`/admin/quotas/route-quota/${ADMIN_ID}`, {
       method: 'PUT',
       body: { limit: 5 }
     })
@@ -481,7 +499,7 @@ describe('PUT /admin/quotas/:namespace/:userId', () => {
 
   test('KV write failure -> 503 (put and delete)', async () => {
     const putFixture = await makeFixture({ kvWriteFails: true })
-    const putResponse = await putFixture.request(`/admin/quotas/ai/${ADMIN_ID}`, {
+    const putResponse = await putFixture.request(`/admin/quotas/route-quota/${ADMIN_ID}`, {
       method: 'PUT',
       token: ADMIN_CLIENT_TOKEN,
       body: { limit: 5 }
@@ -489,7 +507,7 @@ describe('PUT /admin/quotas/:namespace/:userId', () => {
     expect(putResponse.status).toBe(503)
 
     const deleteFixture = await makeFixture({ kvWriteFails: true })
-    const deleteResponse = await deleteFixture.request(`/admin/quotas/ai/${ADMIN_ID}`, {
+    const deleteResponse = await deleteFixture.request(`/admin/quotas/route-quota/${ADMIN_ID}`, {
       method: 'PUT',
       token: ADMIN_CLIENT_TOKEN,
       body: { limit: null }
@@ -500,7 +518,7 @@ describe('PUT /admin/quotas/:namespace/:userId', () => {
   test('invalid JSON body -> 400', async () => {
     const fx = await makeFixture()
     const response = await app.fetch(
-      new Request(`http://localhost/admin/quotas/ai/${ADMIN_ID}`, {
+      new Request(`http://localhost/admin/quotas/route-quota/${ADMIN_ID}`, {
         method: 'PUT',
         headers: {
           'content-type': 'application/json',
@@ -514,5 +532,67 @@ describe('PUT /admin/quotas/:namespace/:userId', () => {
 
     expect(response.status).toBe(400)
     expect(fx.kvPut).not.toHaveBeenCalled()
+  })
+})
+
+describe('declared namespaces and multi-module discovery', () => {
+  afterEach(() => {
+    mockQuotaModulePaths = null
+  })
+
+  test('namespace with zero declaring modules -> 400 for both GET and PUT', async () => {
+    const fx = await makeFixture()
+
+    const get = await fx.request('/admin/quotas/vision/users', { token: ADMIN_CLIENT_TOKEN })
+    expect(get.status).toBe(400)
+
+    const put = await fx.request(`/admin/quotas/vision/${ADMIN_ID}`, {
+      method: 'PUT',
+      token: ADMIN_CLIENT_TOKEN,
+      body: { limit: 5 }
+    })
+    expect(put.status).toBe(400)
+    expect(fx.kvPut).not.toHaveBeenCalled()
+  })
+
+  test('declared namespace without enabled instances -> 200 {users: []}', async () => {
+    const fx = await makeFixture()
+    fx.testDb.sqlite
+      .prepare('UPDATE plugin_configs SET enabled = 0 WHERE id = ?')
+      .run(QUOTA_TASK_PLUGIN_ID)
+
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
+    expect(response.status).toBe(200)
+    expect(await readJson(response)).toEqual({ users: [] })
+  })
+
+  test('modules sharing one namespace are all discovered via inArray', async () => {
+    const fx = await makeFixture()
+    const SHARED_MODULE_PLUGIN_ID = 30
+    fx.testDb.db
+      .insert(pluginConfigs)
+      .values({
+        id: SHARED_MODULE_PLUGIN_ID,
+        userId: USER_ID,
+        name: 'Shared Namespace Plugin',
+        token: 'plugin-token-30',
+        modulePath: 'test/shared-ai',
+        configYaml: VALID_CONFIG,
+        enabled: 1,
+        usageDay: null,
+        usageCount: 4
+      })
+      .run()
+    mockQuotaModulePaths = [QUOTA_MODULE, 'test/shared-ai']
+
+    const response = await fx.request('/admin/quotas/route-quota/users', { token: ADMIN_CLIENT_TOKEN })
+    expect(response.status).toBe(200)
+
+    const body = await readJson(response)
+    expect(body.users).toHaveLength(2)
+    expect(body.users.map((row: any) => row.pluginId)).toEqual([
+      QUOTA_TASK_PLUGIN_ID,
+      SHARED_MODULE_PLUGIN_ID
+    ])
   })
 })

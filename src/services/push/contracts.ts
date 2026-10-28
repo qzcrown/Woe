@@ -7,6 +7,13 @@
 
 
 
+
+
+
+
+
+
+
 export type PushPlatform = string;
 
 
@@ -77,9 +84,24 @@ export interface PushProviderRegistration {
 }
 
 
+
+
+
+
+
+
+
+
+export type ProviderResolution =
+  | { status: "ready"; provider: PushProvider; policy: PushDeliveryPolicy }
+  | { status: "disabled" | "init-failed"; provider: null; policy: PushDeliveryPolicy }
+  | { status: "unregistered"; provider: null; policy: null };
+
+
 export interface ProviderResolver {
   get(platform: PushPlatform): PushProvider | null;
   getPolicy(platform: PushPlatform): PushDeliveryPolicy | null;
+  resolve(platform: PushPlatform): ProviderResolution;
 }
 
 

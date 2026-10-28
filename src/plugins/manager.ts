@@ -5,27 +5,30 @@
 
 
 import { parse } from 'yaml'
-import { ExecutablePlugin, PluginContext, FilterConfig } from './types.ts'
+import {
+  ExecutablePlugin,
+  PluginContext,
+  FilterConfig,
+  PluginLoadSnapshot,
+  UnavailablePluginIdentity
+} from './types.ts'
 import type { PluginEventOutcome, PluginJobsAccess, PluginJobsFactory } from './jobs/types.ts'
-import { register as reg, resolve as res } from './registry.ts'
-import { createDisplayer } from './builtin/displayer.ts'
-import { createWebhookerPlugin } from './builtin/webhooker/definition.ts'
-import { WEBHOOKER_MODULE_PATH } from './builtin/webhooker/config.ts'
+import { resolve as res } from './registry.ts'
+import { moduleDescriptors } from '../generated/plugins/catalog.ts'
+import { hasPluginTask } from './jobs/registry.ts'
 import { DrizzleDB } from '../drizzle/index.ts'
 import { pluginConfigs, pluginLogs, userPluginPermissions, users } from '../models/index.ts'
 import { eq, and, inArray } from 'drizzle-orm'
 import { evaluateFilter } from './filter.ts'
 import { PushOutboxService } from '../services/push/outboxService.ts'
-
-
-reg(WEBHOOKER_MODULE_PATH, createWebhookerPlugin)
-reg('builtin/displayer', createDisplayer)
+import type { ProviderResolver } from '../services/push/contracts.ts'
 
 
 export type PluginEvent = 'message.create' | 'message.delete' | 'application.create' | 'client.create'
 
 
 type PluginSkipCodeOrConfig = Extract<PluginEventOutcome, { status: 'skipped' }>['code']
+const catalogModulePaths = new Set(moduleDescriptors.map(module => module.modulePath))
 
 
 
@@ -39,6 +42,24 @@ const unconfiguredJobsAccess: PluginJobsAccess = {
 }
 
 
+
+
+
+async function unconfiguredPushEnqueue(): Promise<never> {
+  throw new Error('push providers are not configured')
+}
+
+
+export interface PluginManagerOptions {
+  jobs?: PluginJobsFactory
+
+
+
+
+  pushResolver?: () => Promise<ProviderResolver>
+}
+
+
 export class PluginManager {
   private cache: Map<number, ExecutablePlugin[]> = new Map()
 
@@ -48,9 +69,12 @@ export class PluginManager {
 
   private jobsCache: Map<number, PluginJobsAccess> = new Map()
 
+
+  private unavailableCache: Map<number, UnavailablePluginIdentity[]> = new Map()
+
   constructor(
     private drizzle: DrizzleDB,
-    private options: { jobs?: PluginJobsFactory } = {}
+    private options: PluginManagerOptions = {}
   ) {}
 
   private async isUserAdmin(userId: number): Promise<boolean> {
@@ -109,6 +133,7 @@ export class PluginManager {
 
     const pushOutboxService = new PushOutboxService(this.drizzle)
     const plugins: ExecutablePlugin[] = []
+    const unavailable: UnavailablePluginIdentity[] = []
     for (const row of pluginConfigsResult) {
 
       if (!isAdmin && permittedPlugins && !permittedPlugins.has(row.modulePath)) {
@@ -116,7 +141,19 @@ export class PluginManager {
       }
 
       const p = res(row.modulePath, row.id, row.name)
-      if (!p) continue
+      if (!p) {
+
+        if (catalogModulePaths.has(row.modulePath) || hasPluginTask(row.modulePath)) continue
+
+
+        unavailable.push({
+          id: row.id,
+          userId,
+          name: row.name,
+          modulePath: row.modulePath
+        })
+        continue
+      }
 
 
       let conf: Record<string, any> | undefined
@@ -161,11 +198,22 @@ export class PluginManager {
         console.error(`[Plugin Jobs Factory Error] plugin=${p.name}`)
         jobs = unconfiguredJobsAccess
       }
+
+
+
+
+      const pushOutboxAccess = {
+        enqueueForUserDevices: async (input: Parameters<PushOutboxService['enqueueForUserDevices']>[0]) => {
+          const resolver = this.options.pushResolver
+            ? await this.options.pushResolver()
+            : null
+          if (!resolver) return unconfiguredPushEnqueue()
+          return pushOutboxService.enqueueForUserDevices(input, resolver)
+        }
+      }
       await p.init({
         config: conf,
-        pushOutbox: {
-          enqueueForUserDevices: (input) => pushOutboxService.enqueueForUserDevices(input)
-        },
+        pushOutbox: pushOutboxAccess,
         jobs
       })
       this.jobsCache.set(p.id, jobs)
@@ -176,7 +224,11 @@ export class PluginManager {
       this.filterCache.set(p.id, filterConfig)
     }
 
-    this.cache.set(userId, plugins)
+
+
+    const snapshot: PluginLoadSnapshot = { plugins, unavailable }
+    this.cache.set(userId, snapshot.plugins)
+    this.unavailableCache.set(userId, snapshot.unavailable)
     return plugins
   }
 
@@ -190,10 +242,47 @@ export class PluginManager {
       }
     }
     this.cache.delete(userId)
+    this.unavailableCache.delete(userId)
+  }
+
+
+
+
+
+
+
+  private async recordUnavailableSkips(
+    userId: number,
+    event: PluginEvent,
+    unavailable: readonly UnavailablePluginIdentity[]
+  ): Promise<void> {
+    for (const identity of unavailable) {
+      try {
+        await this.drizzle
+          .insert(pluginLogs)
+          .values({
+            pluginId: identity.id,
+            userId,
+            event: `${event}.skipped`,
+            status: 1,
+            durationMs: 0,
+            error: 'plugin-unavailable'
+          })
+      } catch {
+        console.error(`[Plugin Unavailable Skipped Log Error] pluginId=${identity.id} userId=${userId}`)
+      }
+    }
   }
 
   async emit(userId: number, event: PluginEvent, ctx: PluginContext): Promise<void> {
     const plugins = await this.loadForUser(userId)
+
+
+
+    const unavailableIdentities = this.unavailableCache.get(userId) ?? []
+    if (unavailableIdentities.length > 0) {
+      await this.recordUnavailableSkips(userId, event, unavailableIdentities)
+    }
 
     for (const p of plugins) {
       const start = Date.now()

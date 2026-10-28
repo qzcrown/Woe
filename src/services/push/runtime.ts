@@ -12,12 +12,14 @@
 
 
 
+
 import type { DrizzleDB } from "../../drizzle/index.ts";
 import type { Env } from "../../types/index.ts";
 import type { PushPluginDefinition, PushProviderFactoryContext } from "../../plugins/push/types.ts";
 import { BUILTIN_PUSH_PLUGINS } from "../../plugins/builtin/pushPlugins.ts";
+import type { ProviderResolver } from "./contracts.ts";
 import { DEFAULT_PUSH_DELIVERY_POLICY } from "./contracts.ts";
-import type { PushProviderRegistration } from "./contracts.ts";
+import type { ProviderRegistryEntry } from "./providerRegistry.ts";
 import { ProviderRegistry } from "./providerRegistry.ts";
 
 
@@ -94,7 +96,7 @@ export async function createPushRuntime(
     fetchFn: options?.fetchFn ?? fetch.bind(globalThis)
   };
 
-  const registrations: PushProviderRegistration[] = [];
+  const registrations: ProviderRegistryEntry[] = [];
   for (const definition of definitions) {
     try {
       const registration = await definition.createRuntime(ctx);
@@ -108,6 +110,7 @@ export async function createPushRuntime(
     } catch {
 
 
+
       console.error(PUSH_PROVIDER_INIT_FAILED, {
         modulePath: definition.modulePath,
         platform: definition.platform
@@ -115,10 +118,27 @@ export async function createPushRuntime(
       registrations.push({
         platform: definition.platform,
         provider: null,
-        policy: DEFAULT_PUSH_DELIVERY_POLICY
+        policy: DEFAULT_PUSH_DELIVERY_POLICY,
+        initFailed: true
       });
     }
   }
 
   return { providers: new ProviderRegistry(registrations) };
+}
+
+
+
+
+
+
+
+
+
+export function createPushResolverFactory(
+  drizzle: DrizzleDB,
+  env: Env,
+  options?: CreatePushRuntimeOptions
+): () => Promise<ProviderResolver> {
+  return async () => (await createPushRuntime(drizzle, env, options)).providers;
 }

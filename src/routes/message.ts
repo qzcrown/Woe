@@ -125,7 +125,11 @@ message.post("/", async (c) => {
 
 
   const jobRuntime = createPluginJobRuntime({ drizzle, env: c.env });
-  const messageHandlers = new MessageHandlers(drizzle, streamHub, jobRuntime);
+
+
+  const { createPushResolverFactory } = await import("../services/push/runtime.ts");
+  const pushResolverFactory = createPushResolverFactory(drizzle, c.env);
+  const messageHandlers = new MessageHandlers(drizzle, streamHub, jobRuntime, pushResolverFactory);
 
   let target: MessageCreateTarget | Response;
   try {

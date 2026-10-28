@@ -125,7 +125,7 @@ export function seedClient(
     userId: 7,
     token: 'seed-token-' + Math.random().toString(36).slice(2),
     name: 'Old Device',
-    platform: 'fixture_a',
+    platform: 'huawei',
     deviceUid: 'device-abc',
     deviceToken: 'old-push-token-' + Math.random().toString(36).slice(2),
     tokenUpdatedAt: null,

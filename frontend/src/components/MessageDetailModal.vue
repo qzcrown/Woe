@@ -10,7 +10,7 @@
         {{ message.title || $t('messages.noTitle') }}
       </h3>
       <span class="message-priority" :class="`priority-${getPriorityLevel(message.priority ?? 1)}`">
-        {{ getPriorityLabel(message.priority) }}
+        {{ getPriorityLabel(message.priority, t) }}
       </span>
     </div>
 
@@ -35,10 +35,25 @@
 
 
     <div v-if="tags.length" class="message-tags-section">
-      <h4 class="extras-title">{{ $t('messageTags.title') }}</h4>
+      <h4 class="extras-title">{{ $t('messages.tags') }}</h4>
       <div class="message-tags-list">
-        <span v-for="tag in tags" :key="tag" class="message-tag-chip">{{ tag }}</span>
+        <span v-for="tag in tags" :key="tag" class="tag-chip">{{ tag }}</span>
       </div>
+    </div>
+
+
+    <div
+      v-for="slot in messageActionSlots"
+      :key="slot.modulePath"
+      class="message-plugin-actions"
+    >
+      <component
+        :is="slot.component"
+        :message="message"
+        :instances="instancesFor(slot.modulePath)"
+        :host="uiHost"
+        @update-tags="handleUpdateTags"
+      />
     </div>
 
 
@@ -59,33 +74,48 @@
 </template>
 
 <script setup lang="ts">
-import { getPriorityLevel } from '@/utils/priority'
-import { ref, computed, onMounted } from 'vue'
+import { getPriorityLevel, getPriorityLabel } from '@/utils/priority'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseModal from '@/components/BaseModal.vue'
 import MessageContent from '@/components/MessageContent.vue'
 import { useMessagesStore } from '@/stores/messages'
+import { useAuthStore } from '@/stores/auth'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { showError, showSuccess } from '@/utils/errorHandler'
-import { applicationApi } from '@/services/api'
+import { applicationApi, pluginApi } from '@/services/api'
 import { formatDateTime } from '@/utils/datetime'
+import { getPluginMessageActions } from '@/plugins/catalog'
+import { createPluginUiHost } from '@/plugins/host'
 import { extractMessageTags } from '@/utils/messageTags'
-import type { Message, ApiError, Application } from '@/types'
+import type { Message, ApiError, Application, Plugin } from '@/types'
+import type { PluginUiHost } from '@/plugins/types'
 
 const props = defineProps<{ message: Message }>()
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'deleted', id: number): void
+  (e: 'tags-updated', payload: { id: number; tags: string[] }): void
 }>()
 
 const { t } = useI18n()
 const messagesStore = useMessagesStore()
+const authStore = useAuthStore()
 const { confirm: confirmDialog } = useConfirmDialog()
 const deleting = ref(false)
 const application = ref<Application | null>(null)
 const loadingApp = ref(false)
 
-const tags = computed(() => extractMessageTags(props.message.extras))
+
+const messageActionSlots = getPluginMessageActions()
+const uiHost: PluginUiHost = createPluginUiHost({ ownerId: authStore.user?.id ?? 0 })
+const pluginInstances = ref<Plugin[]>([])
+
+const tags = ref<string[]>(extractMessageTags(props.message.extras))
+
+watch(() => props.message, () => {
+  tags.value = extractMessageTags(props.message.extras)
+}, { deep: true, flush: 'sync' })
 
 const emitClose = () => emit('close')
 
@@ -93,16 +123,6 @@ const hasExtras = computed(() => {
   return props.message.extras && Object.keys(props.message.extras).length > 0
 })
 
-const getPriorityLabel = (priority?: number) => {
-  if (priority === undefined || priority === null) return t('common.priorityNormal')
-  const labels = [
-    t('common.priorityLow'),
-    t('common.priorityNormal'),
-    t('common.priorityHigh'),
-    t('common.priorityEmergency')
-  ]
-  return labels[getPriorityLevel(priority ?? 1)] || t('common.priorityNormal')
-}
 
 const renderExtrasValue = (value: any): string => {
   if (value === null || value === undefined) return '-'
@@ -127,6 +147,33 @@ const loadApplication = async () => {
   } finally {
     loadingApp.value = false
   }
+}
+
+
+
+
+
+const loadPluginInstances = async () => {
+  if (messageActionSlots.length === 0) return
+  try {
+    const response = await pluginApi.getPlugins(uiHost.requestOptions)
+    if (!uiHost.isCurrent()) return
+    pluginInstances.value = response.data
+  } catch (error) {
+    if (uiHost.signal.aborted) return
+    console.error('Failed to load plugin instances:', error)
+    pluginInstances.value = []
+  }
+}
+
+const instancesFor = (modulePath: string): Plugin[] =>
+  pluginInstances.value.filter(plugin => plugin.modulePath === modulePath)
+
+
+const handleUpdateTags = (payload: { messageId: number; tags: string[] }) => {
+  if (!uiHost.isCurrent() || payload.messageId !== props.message.id) return
+  tags.value = payload.tags
+  emit('tags-updated', { id: payload.messageId, tags: payload.tags })
 }
 
 const handleDelete = async () => {
@@ -156,6 +203,11 @@ const handleDelete = async () => {
 
 onMounted(() => {
   loadApplication()
+  loadPluginInstances()
+})
+
+onUnmounted(() => {
+  uiHost.dispose()
 })
 </script>
 
@@ -289,7 +341,7 @@ onMounted(() => {
   gap: 0.5rem;
 }
 
-.message-tag-chip {
+.tag-chip {
   display: inline-block;
   padding: 0.25rem 0.625rem;
   border-radius: 9999px;
@@ -339,11 +391,11 @@ onMounted(() => {
   border-radius: 0.375rem;
   cursor: pointer;
   font-weight: 500;
-  transition: var(--theme-transition);
+  transition: var(--transition-interactive);
 }
 
 .delete-btn:hover:not(:disabled) {
-  background-color: #dc2626;
+  background-color: var(--color-error-hover);
 }
 
 .delete-btn:disabled {

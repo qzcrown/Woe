@@ -15,13 +15,13 @@ import { processClaimedJob } from './sendPipeline.ts';
 interface QueueConsumerDeps {
   outbox: {
     getJobById(id: number): Promise<PushOutboxJob | null>;
-    markProcessing(id: number): Promise<boolean>;
+    markProcessing(id: number): Promise<string | null>;
     getPushTargetByClientId(clientId: number): Promise<PushTargetLookup>;
-    markSuccess(id: number): Promise<void>;
-    scheduleRetry(id: number, attemptCount: number, nextRetryAt: string, error: string): Promise<void>;
-    markDead(id: number, attemptCount: number, error: string): Promise<void>;
-    suspend(id: number, nextRetryAt: string, reason: string): Promise<void>;
-    invalidateClient?(clientId: number, reason: string): Promise<void>;
+    markSuccess(id: number, lease: string): Promise<void>;
+    scheduleRetry(id: number, attemptCount: number, nextRetryAt: string, error: string, lease: string): Promise<boolean>;
+    markDead(id: number, attemptCount: number, error: string, lease: string): Promise<boolean>;
+    suspend(id: number, nextRetryAt: string, reason: string, lease: string): Promise<void>;
+    invalidateClient?(clientId: number, reason: string, jobId: number, attemptCount: number, error: string, lease: string): Promise<void>;
   };
   providers: ProviderResolver;
   queue: Pick<Queue<PushQueueMessage>, 'sendBatch'>;
@@ -54,8 +54,8 @@ export async function consumePushQueueBatch(batch: MessageBatch<unknown>, deps: 
       }
 
 
-      const locked = await deps.outbox.markProcessing(job.id);
-      if (!locked) {
+      const lease = await deps.outbox.markProcessing(job.id);
+      if (lease === null) {
 
         msg.ack();
         continue;
@@ -63,7 +63,7 @@ export async function consumePushQueueBatch(batch: MessageBatch<unknown>, deps: 
 
       const result = await processClaimedJob(
         { outbox: deps.outbox, providers: deps.providers },
-        job
+        { ...job, status: 'processing', updatedAt: lease }
       );
 
       if (result.action !== 'retry') {

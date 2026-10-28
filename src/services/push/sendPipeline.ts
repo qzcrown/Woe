@@ -29,8 +29,9 @@ import {
 
 
 
+
 export type SendPipelineResult =
-  | { action: "success" | "dead" | "suspend" }
+  | { action: "success" | "dead" | "suspend" | "stale" }
   | { action: "retry"; nextRetryAt: string; reason: string };
 
 
@@ -38,7 +39,16 @@ export interface SendPipelineDeps {
   outbox: Pick<
     PushOutboxService,
     "getPushTargetByClientId" | "markSuccess" | "scheduleRetry" | "markDead" | "suspend"
-  > & { invalidateClient?: (clientId: number, reason: string) => Promise<void> };
+  > & {
+    invalidateClient?: (
+      clientId: number,
+      reason: string,
+      jobId: number,
+      attemptCount: number,
+      error: string,
+      lease: string
+    ) => Promise<void>
+  };
 
   providers: ProviderResolver;
 
@@ -125,9 +135,32 @@ function targetChangedDuringSend(before: SendTargetSnapshot, after: PushTargetLo
 
 
 
-export async function processClaimedJob(deps: SendPipelineDeps, job: PushOutboxJob): Promise<SendPipelineResult> {
+export async function processClaimedJob(
+  depsInput: SendPipelineDeps,
+  job: PushOutboxJob & { updatedAt: string }
+): Promise<SendPipelineResult> {
+  const lease = job.updatedAt;
+  const outbox = {
+    getPushTargetByClientId: (clientId: number) => depsInput.outbox.getPushTargetByClientId(clientId),
+    markSuccess: (id: number) => depsInput.outbox.markSuccess(id, lease),
+    scheduleRetry: (id: number, attemptCount: number, nextRetryAt: string, error: string) =>
+      depsInput.outbox.scheduleRetry(id, attemptCount, nextRetryAt, error, lease),
+    markDead: (id: number, attemptCount: number, error: string) =>
+      depsInput.outbox.markDead(id, attemptCount, error, lease),
+    suspend: (id: number, nextRetryAt: string, reason: string) =>
+      depsInput.outbox.suspend(id, nextRetryAt, reason, lease),
+    invalidateClient: depsInput.outbox.invalidateClient
+      ? (clientId: number, reason: string, jobId: number, attemptCount: number, error: string) =>
+        depsInput.outbox.invalidateClient!(clientId, reason, jobId, attemptCount, error, lease)
+      : undefined
+  };
+  const deps = { ...depsInput, outbox };
 
-  const policy = deps.providers.getPolicy(job.platform) ?? DEFAULT_PUSH_DELIVERY_POLICY;
+
+
+
+  const resolution = deps.providers.resolve(job.platform);
+  const policy = resolution.policy ?? DEFAULT_PUSH_DELIVERY_POLICY;
   const maxRetries = policy.maxRetries;
   const retryBackoffMs = policy.retryBackoffMs;
   const now = deps.now ?? Date.now;
@@ -213,8 +246,19 @@ export async function processClaimedJob(deps: SendPipelineDeps, job: PushOutboxJ
   }
 
 
-  const provider = deps.providers.get(job.platform);
-  if (!provider) {
+
+
+
+
+  if (resolution.status === 'unregistered') {
+    await deps.outbox.markDead(
+      job.id,
+      job.attemptCount,
+      `Undeliverable: no provider for platform ${job.platform}`
+    );
+    return { action: "dead" };
+  }
+  if (resolution.status !== 'ready') {
     await deps.outbox.suspend(
       job.id,
       buildSuspendRetryAt(),
@@ -222,6 +266,7 @@ export async function processClaimedJob(deps: SendPipelineDeps, job: PushOutboxJ
     );
     return { action: "suspend" };
   }
+  const provider = resolution.provider;
 
 
   const result = await provider.send({ ...payload, deviceToken: target.deviceToken });
@@ -249,11 +294,21 @@ export async function processClaimedJob(deps: SendPipelineDeps, job: PushOutboxJ
     target.clientId != null &&
     deps.outbox.invalidateClient
   ) {
-    await deps.outbox.invalidateClient(target.clientId, `Invalid push token: ${errorMessage}`);
+    const clientId = target.clientId;
+    const invalidate = () => deps.outbox.invalidateClient!(
+      clientId,
+      `Invalid push token: ${errorMessage}`,
+      job.id,
+      nextAttempt,
+      errorMessage
+    );
 
 
-
-    await deps.outbox.markDead(job.id, nextAttempt, errorMessage);
+    try {
+      await invalidate();
+    } catch {
+      await invalidate();
+    }
     return { action: "dead" };
   }
 
@@ -268,8 +323,8 @@ export async function processClaimedJob(deps: SendPipelineDeps, job: PushOutboxJ
       if (targetChangedDuringSend(target, recheck)) {
         const reason = `${errorMessage}${TARGET_CHANGED_SUFFIX}`;
         const nextRetryAt = buildRetryAt(nextAttempt);
-        await deps.outbox.scheduleRetry(job.id, nextAttempt, nextRetryAt, reason);
-        return { action: "retry", nextRetryAt, reason };
+        const scheduled = await deps.outbox.scheduleRetry(job.id, nextAttempt, nextRetryAt, reason);
+        return scheduled ? { action: "retry", nextRetryAt, reason } : { action: "stale" };
       }
     } catch {
 
@@ -278,8 +333,8 @@ export async function processClaimedJob(deps: SendPipelineDeps, job: PushOutboxJ
 
   if (!wouldBeDead) {
     const nextRetryAt = buildRetryAt(nextAttempt);
-    await deps.outbox.scheduleRetry(job.id, nextAttempt, nextRetryAt, errorMessage);
-    return { action: "retry", nextRetryAt, reason: errorMessage };
+    const scheduled = await deps.outbox.scheduleRetry(job.id, nextAttempt, nextRetryAt, errorMessage);
+    return scheduled ? { action: "retry", nextRetryAt, reason: errorMessage } : { action: "stale" };
   }
   await deps.outbox.markDead(job.id, nextAttempt, errorMessage);
   return { action: "dead" };

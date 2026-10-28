@@ -8,6 +8,9 @@
 
 
 
+
+
+
 import { Hono } from "hono";
 import { and, eq, inArray } from "drizzle-orm";
 import { HonoEnv } from "../types/hono.ts";
@@ -16,13 +19,8 @@ import { Authenticator } from "../middleware/auth.ts";
 import { pluginConfigs } from "../models/index.ts";
 import { ApiResponse, parseJsonBody } from "../utils/response.ts";
 import { parsePositiveIntegerId, validatePositiveIntegerId } from "../utils/routeParams.ts";
-import {
-  QuotaService,
-  SUPPORTED_QUOTA_NAMESPACES,
-  type QuotaNamespace,
-  type QuotaSource,
-} from "../services/quota/quotaService.ts";
-import { resolvePluginTask } from "../plugins/jobs/registry.ts";
+import { QuotaService, type QuotaSource } from "../services/quota/quotaService.ts";
+import { getQuotaNamespaceModulePaths, getQuotaNamespaces } from "../plugins/jobs/registry.ts";
 
 const adminQuotas = new Hono<HonoEnv>();
 
@@ -47,9 +45,10 @@ interface QuotaUserView {
   source: QuotaSource;
 }
 
-function parseNamespace(raw: string): QuotaNamespace | null {
-  if (!(SUPPORTED_QUOTA_NAMESPACES as readonly string[]).includes(raw)) return null;
-  return raw as QuotaNamespace;
+
+function declaredModulePaths(raw: string): readonly string[] | null {
+  const modulePaths = getQuotaNamespaceModulePaths(raw);
+  return modulePaths.length === 0 ? null : modulePaths;
 }
 
 
@@ -73,37 +72,28 @@ adminQuotas.get("/:namespace/users", async (c) => {
   const auth = await getAdminAuth(c);
   if ("error" in auth) return auth.error;
 
-  const namespace = parseNamespace(c.req.param("namespace"));
-  if (!namespace) {
+
+  const namespace = c.req.param("namespace");
+  const modulePaths = declaredModulePaths(namespace);
+  if (!modulePaths) {
     return ApiResponse.error("Bad Request", 400, UNSUPPORTED_NAMESPACE);
   }
 
 
-  const registeredModules = await auth.drizzle
-    .selectDistinct({ modulePath: pluginConfigs.modulePath })
-    .from(pluginConfigs)
-    .where(eq(pluginConfigs.enabled, 1))
-    .all();
-  const quotaModules = registeredModules.filter(
-    instance => resolvePluginTask(instance.modulePath)?.quotaNamespace === namespace
-  ).map(instance => instance.modulePath);
   const instances = await auth.drizzle
     .select({
       id: pluginConfigs.id,
-      modulePath: pluginConfigs.modulePath,
       userId: pluginConfigs.userId,
       usageDay: pluginConfigs.usageDay,
       usageCount: pluginConfigs.usageCount,
     })
     .from(pluginConfigs)
-    .where(
-      and(inArray(pluginConfigs.modulePath, quotaModules), eq(pluginConfigs.enabled, 1))
-    )
+    .where(and(inArray(pluginConfigs.modulePath, modulePaths), eq(pluginConfigs.enabled, 1)))
     .orderBy(pluginConfigs.userId, pluginConfigs.id)
     .limit(MAX_QUOTA_ROWS)
     .all();
 
-  const quota = new QuotaService(auth.drizzle, c.env);
+  const quota = new QuotaService(auth.drizzle, c.env, getQuotaNamespaces());
   const described = await quota.describeNamespaceQuotas(
     namespace,
     instances.map((instance) => ({
@@ -140,8 +130,8 @@ adminQuotas.put("/:namespace/:userId", async (c) => {
   const auth = await getAdminAuth(c);
   if ("error" in auth) return auth.error;
 
-  const namespace = parseNamespace(c.req.param("namespace"));
-  if (!namespace) {
+  const namespace = c.req.param("namespace");
+  if (!declaredModulePaths(namespace)) {
     return ApiResponse.error("Bad Request", 400, UNSUPPORTED_NAMESPACE);
   }
 
@@ -160,7 +150,7 @@ adminQuotas.put("/:namespace/:userId", async (c) => {
 
 
 
-  const quota = new QuotaService(auth.drizzle, c.env);
+  const quota = new QuotaService(auth.drizzle, c.env, getQuotaNamespaces());
   const result = await quota.setUserOverride(namespace, userId, body.limit as number | null);
 
   if (result.status === "invalid") {

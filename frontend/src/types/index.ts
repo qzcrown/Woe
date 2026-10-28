@@ -171,7 +171,7 @@ export interface ApplicationParams {
 
 
 
-export type ClientPlatform = string
+export type ClientPlatform = 'huawei' | 'apple' | 'web' | 'unknown'
 
 
 export type ClientTokenStatus = 'active' | 'inactive' | 'invalid' | 'expired'
@@ -230,6 +230,9 @@ export interface Message {
 
 export type PluginConfig = string
 
+
+export type PluginAvailability = 'available' | 'unavailable'
+
 export interface Plugin {
   readonly id: number
   readonly name: string
@@ -242,6 +245,8 @@ export interface Plugin {
   readonly license?: string
   readonly website?: string
   readonly configExample?: string
+
+  readonly availability?: PluginAvailability
 }
 
 
@@ -288,7 +293,10 @@ export interface TriggerMessageJobResponse {
 
 
 
-export interface AiQuotaUser {
+
+
+
+export interface QuotaUser {
   userId: number
   pluginId: number
   defaultLimit: number
@@ -300,8 +308,8 @@ export interface AiQuotaUser {
   source: 'override' | 'default'
 }
 
-export interface AiQuotaListResponse {
-  users: AiQuotaUser[]
+export interface QuotaListResponse {
+  users: QuotaUser[]
 }
 
 

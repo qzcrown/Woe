@@ -7,6 +7,9 @@
 
 
 
+
+
+
 import type {
   AiProvider,
   AiProviderFailureKind,
@@ -19,6 +22,7 @@ import {
   mapHttpStatusToFailureKind,
   parseOpenAiChatCompletion
 } from '../envelope.ts'
+import { buildReasoningWire, resolveDialect } from '../providerDialects.ts'
 import { parseRetryAfterMs } from '../../http/retryAfter.ts'
 import {
   OutboundHttpError,
@@ -107,18 +111,27 @@ export function createOpenAiCompatibleProvider(
       if (baseUrl === '' || apiKey === '') return { ok: false, failureKind: 'config' }
       if (!validateOutboundUrl(baseUrl).ok) return { ok: false, failureKind: 'config' }
 
+
+
+
+      const effort = input.reasoningEffort ?? 'off'
+      const reasoningTokens = input.reasoningTokens ?? 0
+      const wire = buildReasoningWire(
+        resolveDialect(baseUrl, binding.model),
+        effort,
+        reasoningTokens
+      )
+      const total = input.maxTokens + (wire.reasoningActive ? reasoningTokens : 0)
       const body: Record<string, unknown> = {
         model: binding.model,
         messages: input.messages,
-        max_tokens: input.maxTokens,
-        temperature: input.temperature,
-        stream: false
+        stream: false,
+        [wire.tokenLimitField]: total,
+        ...(wire.sendTemperature ? { temperature: input.temperature } : {}),
+
+
+        ...wire.body
       }
-
-
-
-
-      if (input.disableReasoning === true) body.reasoning = { effort: 'none' }
 
       let response: Response
       try {

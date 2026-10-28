@@ -72,7 +72,7 @@
               </div>
               <p class="message-content">{{ message.message }}</p>
               <div class="message-priority" :class="`priority-${getPriorityLevel(message.priority ?? 1)}`">
-                {{ getPriorityLabel(message.priority) }}
+                {{ getPriorityLabel(message.priority, t) }}
               </div>
             </div>
             <div v-if="messagesStore.loading" class="loading">{{ $t('common.loading') }}</div>
@@ -122,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { getPriorityLevel } from '@/utils/priority'
+import { getPriorityLevel, getPriorityLabel } from '@/utils/priority'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Layout from '@/components/Layout.vue'
@@ -173,16 +173,6 @@ const recentMessages = computed(() => {
   return messagesStore.messages.slice(0, 5)
 })
 
-const getPriorityLabel = (priority?: number) => {
-  if (priority === undefined || priority === null) return t('common.priorityNormal')
-  const labels = [
-    t('common.priorityLow'),
-    t('common.priorityNormal'),
-    t('common.priorityHigh'),
-    t('common.priorityEmergency')
-  ]
-  return labels[getPriorityLevel(priority ?? 1)] || t('common.priorityNormal')
-}
 
 const loadDashboardData = async () => {
   try {
@@ -308,6 +298,9 @@ onUnmounted(() => {
 }
 
 .stat-content h3 {
+
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
   font-size: 2rem;
   font-weight: bold;
   color: var(--color-text-primary);
@@ -447,15 +440,17 @@ onUnmounted(() => {
 }
 
 .status-value {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 
 .status-ok {
-  color: #059669;
+  color: var(--color-success-hover);
 }
 
 .status-error {
-  color: #dc2626;
+  color: var(--color-error-hover);
 }
 
 .loading, .empty-state {

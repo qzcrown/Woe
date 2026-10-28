@@ -1,0 +1,46 @@
+{
+  "modulePath": "builtin/webhooker",
+  "name": "Webhooker",
+  "capabilities": ["webhooker", "messenger"],
+  "author": "qzcrown",
+  "license": "GPL-3.0-only",
+  "website": "https://github.com/qzcrown/woe",
+  "backend": {
+    "event": {
+      "entry": "definition.ts",
+      "export": "createWebhookerPlugin"
+    },
+    "task": {
+      "entry": "definition.ts",
+      "staticExport": "createWebhookerStaticDefinition",
+      "runtimeExport": "createWebhookerDefinition",
+      "supportedSubjectTypes": ["message"],
+      "manualTrigger": false,
+      "outbound": {
+        "allowQuery": true
+      }
+    }
+  },
+  "config": {
+    "parser": {
+      "entry": "config.ts",
+      "export": "resolveWebhookerConfig"
+    },
+    "secretFields": ["authToken"],
+    "errorDescription": "Invalid Webhooker config"
+  },
+  "resources": {
+    "queues": [
+      {
+        "logicalResource": "plugin-jobs",
+        "producerBinding": "PLUGIN_JOB_QUEUE",
+        "consumer": {
+          "maxBatchSize": 1,
+          "maxBatchTimeout": 5,
+          "maxRetries": 2,
+          "maxConcurrency": 1
+        }
+      }
+    ]
+  }
+}

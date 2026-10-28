@@ -11,10 +11,18 @@
 
 
 
+
+
+
+
+
+
+
 import type { Env } from '../../types/index.ts'
 import type { PluginTaskDefinition } from './types.ts'
+import { moduleDescriptors } from '../../generated/plugins/catalog.ts'
+import { serverModules } from '../../generated/plugins/server.ts'
 import {
-  builtinPluginTaskMetadata,
   builtinPluginTasks,
   createBuiltinPluginTasks
 } from '../builtin/pluginTasks.ts'
@@ -29,7 +37,7 @@ const definitions = new Map<string, PluginTaskDefinition>()
 const secretFieldsByModule = new Map<string, readonly string[]>()
 
 function loadBuiltins(): void {
-  for (const metadata of builtinPluginTaskMetadata) {
+  for (const metadata of moduleDescriptors) {
     secretFieldsByModule.set(metadata.modulePath, metadata.secretFields ?? [])
   }
   for (const definition of builtinPluginTasks) {
@@ -41,6 +49,75 @@ function loadBuiltins(): void {
 }
 
 loadBuiltins()
+
+
+
+
+
+
+export interface PluginConfigParserEntry {
+  parse: (raw: unknown) => { ok: boolean }
+  errorDescription: string
+}
+
+
+const FALLBACK_CONFIG_ERROR_DESCRIPTION = 'Invalid plugin config'
+
+type GeneratedServerModule = { configParser?: (raw: unknown) => { ok: boolean } }
+
+const configParsers = new Map<string, PluginConfigParserEntry>()
+for (const descriptor of moduleDescriptors) {
+  const parser = (serverModules as Readonly<Record<string, GeneratedServerModule>>)[
+    descriptor.modulePath
+  ]?.configParser
+  if (!parser) continue
+  configParsers.set(descriptor.modulePath, {
+    parse: parser,
+    errorDescription: descriptor.configErrorDescription ?? FALLBACK_CONFIG_ERROR_DESCRIPTION
+  })
+}
+
+
+
+
+
+export function getPluginConfigParser(modulePath: string): PluginConfigParserEntry | null {
+  return configParsers.get(modulePath) ?? null
+}
+
+
+const quotaNamespaces: readonly string[] = Object.freeze(
+  [
+    ...new Set(
+      moduleDescriptors
+        .map((descriptor) => descriptor.task?.quotaNamespace)
+        .filter((value): value is string => value !== undefined)
+    )
+  ].sort()
+)
+
+const quotaModulePaths = new Map<string, readonly string[]>()
+for (const namespace of quotaNamespaces) {
+  quotaModulePaths.set(
+    namespace,
+    Object.freeze(
+      moduleDescriptors
+        .filter((descriptor) => descriptor.task?.quotaNamespace === namespace)
+        .map((descriptor) => descriptor.modulePath)
+        .sort()
+    )
+  )
+}
+
+
+export function getQuotaNamespaces(): readonly string[] {
+  return quotaNamespaces
+}
+
+
+export function getQuotaNamespaceModulePaths(namespace: string): readonly string[] {
+  return quotaModulePaths.get(namespace) ?? []
+}
 
 
 export function registerPluginTask(definition: PluginTaskDefinition): void {

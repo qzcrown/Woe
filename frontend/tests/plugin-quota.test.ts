@@ -25,13 +25,8 @@ vi.mock('axios', () => ({
 import i18n from '@/locales'
 import { adminQuotaApi } from '@/services/api'
 import { authService, AuthStrategy } from '@/services/auth'
-import {
-  canManageQuotas,
-  isQuotaDisabled,
-  parseQuotaLimitInput,
-  quotaInputErrorKey,
-  quotaSourceKey
-} from '@/utils/quota'
+import { canManageQuotas, isQuotaDisabled, parseQuotaLimitInput } from '@/utils/quota'
+
 beforeEach(() => {
   vi.clearAllMocks()
   i18n.global.locale.value = 'en-US'
@@ -43,7 +38,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('adminQuotaApi', () => {
+describe('adminQuotaApi（显式 namespace 参数）', () => {
   it('uses the client token strategy for both root and /api/v1 prefixes', () => {
     authService.setToken('client', 'client-token')
 
@@ -59,48 +54,56 @@ describe('adminQuotaApi', () => {
     expect(config.headers['X-Gotify-Key']).toBe('client-token')
   })
 
-  it('lists ai quota users', async () => {
+  it('lists quota users of the requested namespace', async () => {
     http.get.mockResolvedValue({ data: { users: [] } })
 
-    const response = await adminQuotaApi.list()
+    const response = await adminQuotaApi.list('sync')
 
-    expect(http.get).toHaveBeenCalledWith('/admin/quotas/ai/users')
+    expect(http.get).toHaveBeenCalledWith('/admin/quotas/sync/users')
     expect(response.data).toEqual({ users: [] })
   })
 
-  it('sets a numeric limit', async () => {
-    await adminQuotaApi.setLimit(5, 500)
+  it('sets a numeric limit in the requested namespace', async () => {
+    await adminQuotaApi.setLimit('ai', 5, 500)
 
     expect(http.put).toHaveBeenCalledWith('/admin/quotas/ai/5', { limit: 500 })
   })
 
   it('sets zero to disable the user', async () => {
-    await adminQuotaApi.setLimit(5, 0)
+    await adminQuotaApi.setLimit('ai', 5, 0)
 
     expect(http.put).toHaveBeenCalledWith('/admin/quotas/ai/5', { limit: 0 })
   })
 
-  it('clears an override with a null limit', async () => {
-    await adminQuotaApi.clearLimit(5)
+  it('clears an override with a null limit in the requested namespace', async () => {
+    await adminQuotaApi.clearLimit('sync', 5)
 
-    expect(http.put).toHaveBeenCalledWith('/admin/quotas/ai/5', { limit: null })
+    expect(http.put).toHaveBeenCalledWith('/admin/quotas/sync/5', { limit: null })
+  })
+
+  it('forwards an abort signal to list and override requests', async () => {
+    const controller = new AbortController()
+
+    await adminQuotaApi.list('ai', { signal: controller.signal })
+    await adminQuotaApi.setLimit('ai', 5, 1, { signal: controller.signal })
+    await adminQuotaApi.clearLimit('ai', 5, { signal: controller.signal })
+
+    expect(http.get).toHaveBeenCalledWith('/admin/quotas/ai/users', {
+      signal: controller.signal
+    })
+    expect(http.put).toHaveBeenNthCalledWith(1, '/admin/quotas/ai/5', { limit: 1 }, {
+      signal: controller.signal
+    })
+    expect(http.put).toHaveBeenNthCalledWith(2, '/admin/quotas/ai/5', { limit: null }, {
+      signal: controller.signal
+    })
   })
 })
 
 describe('quota display helpers', () => {
-  it('shows the inherited default when no override exists', () => {
-    expect(i18n.global.t('users.aiQuota.inherited')).toBe('Default (no override)')
-  })
-
   it('treats an effective limit of zero as disabled', () => {
     expect(isQuotaDisabled(0)).toBe(true)
     expect(isQuotaDisabled(500)).toBe(false)
-  })
-
-  it('maps quota sources to i18n keys present in both locales', () => {
-    expect(quotaSourceKey('override')).toBe('users.aiQuota.sourceOverride')
-    expect(quotaSourceKey('default')).toBe('users.aiQuota.sourceDefault')
-    expect(i18n.global.t(quotaSourceKey('override'))).toBe('Override')
   })
 
   it('only allows administrators to manage quotas', () => {
@@ -112,20 +115,6 @@ describe('quota display helpers', () => {
 })
 
 describe('quota limit input parsing', () => {
-  it('reports an empty input separately from a malformed one', () => {
-    const hint = i18n.global.t(quotaInputErrorKey('empty'))
-
-    expect(parseQuotaLimitInput('')).toEqual({ status: 'empty' })
-    expect(parseQuotaLimitInput('   ')).toEqual({ status: 'empty' })
-    expect(quotaInputErrorKey('empty')).toBe('users.aiQuota.emptyLimit')
-    expect(hint).toContain('Clear override')
-  })
-
-  it('rejects malformed values with the format hint', () => {
-    expect(quotaInputErrorKey('invalid')).toBe('users.aiQuota.invalidLimit')
-    expect(i18n.global.t(quotaInputErrorKey('invalid'))).toBe('Quota must be a non-negative integer')
-  })
-
   it('accepts non-negative integers including zero', () => {
     expect(parseQuotaLimitInput('0')).toEqual({ status: 'ok', limit: 0 })
     expect(parseQuotaLimitInput(' 12 ')).toEqual({ status: 'ok', limit: 12 })
@@ -135,8 +124,6 @@ describe('quota limit input parsing', () => {
   })
 
   it('rejects integers beyond Number.MAX_SAFE_INTEGER (same rule as the backend)', () => {
-
-
     expect(parseQuotaLimitInput('9007199254740993')).toEqual({ status: 'invalid' })
     expect(parseQuotaLimitInput('1e21')).toEqual({ status: 'invalid' })
     expect(parseQuotaLimitInput(String(Number.MAX_SAFE_INTEGER))).toEqual({

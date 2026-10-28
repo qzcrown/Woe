@@ -127,7 +127,7 @@ function clientRow(overrides: Record<string, unknown> = {}) {
     userId: 7,
     token: 'C-client-token',
     name: 'Pixel 9',
-    platform: 'fixture_a',
+    platform: 'huawei',
     deviceUid: null,
     deviceToken: null,
     tokenUpdatedAt: null,

@@ -32,11 +32,11 @@ function makeOutboxStub(jobOverrides: Record<string, any> = {}) {
       id: 1,
       userId: 7,
       messageId: 100,
-      platform: 'fixture_a',
+      platform: 'huawei',
       clientId: 1,
       payloadJson: JSON.stringify({
         userId: 7,
-        platform: 'fixture_a',
+        platform: 'huawei',
         messageId: 100,
         appid: 42,
         date: '2026-02-28T11:59:00.000Z',
@@ -46,17 +46,17 @@ function makeOutboxStub(jobOverrides: Record<string, any> = {}) {
       attemptCount: 0,
       ...jobOverrides
     }),
-    markProcessing: jest.fn().mockResolvedValue(true),
+    markProcessing: jest.fn().mockResolvedValue('lease-1'),
     getPushTargetByClientId: jest.fn().mockResolvedValue({
       kind: 'ready',
       clientId: 1,
-      platform: 'fixture_a',
+      platform: 'huawei',
       deviceToken: 'token-1',
       tokenUpdatedAt: '2026-09-24T00:00:00.000Z',
       tokenStatus: 'active'
     }),
     markSuccess: jest.fn().mockResolvedValue(undefined),
-    scheduleRetry: jest.fn().mockResolvedValue(undefined),
+    scheduleRetry: jest.fn().mockResolvedValue(true),
     markDead: jest.fn().mockResolvedValue(undefined),
     suspend: jest.fn().mockResolvedValue(undefined)
   }
@@ -66,7 +66,12 @@ function makeOutboxStub(jobOverrides: Record<string, any> = {}) {
 function makeResolver(provider: any | null) {
   return {
     get: jest.fn().mockReturnValue(provider),
-    getPolicy: jest.fn().mockReturnValue({ maxRetries: 3, retryBackoffMs: 2000 })
+    getPolicy: jest.fn().mockReturnValue({ maxRetries: 3, retryBackoffMs: 2000 }),
+    resolve: jest.fn().mockImplementation(() =>
+      provider
+        ? { status: 'ready' as const, provider, policy: { maxRetries: 3, retryBackoffMs: 2000 } }
+        : { status: 'disabled' as const, provider: null, policy: { maxRetries: 3, retryBackoffMs: 2000 } }
+    )
   }
 }
 
@@ -98,7 +103,7 @@ describe('queue consumer', () => {
     expect(provider.send).toHaveBeenCalledTimes(1)
 
     expect(provider.send.mock.calls[0][0].deviceToken).toBe('token-1')
-    expect(outbox.markSuccess).toHaveBeenCalledWith(1)
+    expect(outbox.markSuccess).toHaveBeenCalledWith(1, 'lease-1')
     expect(outbox.scheduleRetry).not.toHaveBeenCalled()
     expect(outbox.markDead).not.toHaveBeenCalled()
     expect(message.ack).toHaveBeenCalledTimes(1)
@@ -106,7 +111,7 @@ describe('queue consumer', () => {
 
   test('schedules retry and requeues on retriable failure', async () => {
     const message = makeQueueMessage({ outboxId: 1, traceId: 'trace-2', attempt: 0, enqueueAt: '2026-02-28T12:00:00.000Z' })
-    const outbox = makeOutboxStub({ id: 2, messageId: 101, payloadJson: JSON.stringify({ userId: 7, platform: 'fixture_a', messageId: 101, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
+    const outbox = makeOutboxStub({ id: 2, messageId: 101, payloadJson: JSON.stringify({ userId: 7, platform: 'huawei', messageId: 101, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
 
     const providers = makeResolver({
       send: jest.fn().mockResolvedValue({ ok: false, retriable: true, errorMessage: 'network' })
@@ -129,7 +134,7 @@ describe('queue consumer', () => {
 
   test('marks dead on terminal provider failure', async () => {
     const message = makeQueueMessage({ outboxId: 1, traceId: 'trace-3', attempt: 0, enqueueAt: '2026-02-28T12:00:00.000Z' })
-    const outbox = makeOutboxStub({ id: 3, messageId: 102, attemptCount: 2, payloadJson: JSON.stringify({ userId: 7, platform: 'fixture_a', messageId: 102, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
+    const outbox = makeOutboxStub({ id: 3, messageId: 102, attemptCount: 2, payloadJson: JSON.stringify({ userId: 7, platform: 'huawei', messageId: 102, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
 
     const providers = makeResolver({
       send: jest.fn().mockResolvedValue({ ok: false, retriable: false, errorMessage: 'invalid token' })
@@ -149,8 +154,8 @@ describe('queue consumer', () => {
 
   test('skips duplicate delivery when processing lock is not acquired', async () => {
     const message = makeQueueMessage({ outboxId: 1, traceId: 'trace-4', attempt: 0, enqueueAt: '2026-02-28T12:00:00.000Z' })
-    const outbox = makeOutboxStub({ id: 4, messageId: 103, payloadJson: JSON.stringify({ userId: 7, platform: 'fixture_a', messageId: 103, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
-    outbox.markProcessing = jest.fn().mockResolvedValue(false)
+    const outbox = makeOutboxStub({ id: 4, messageId: 103, payloadJson: JSON.stringify({ userId: 7, platform: 'huawei', messageId: 103, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' }) })
+    outbox.markProcessing = jest.fn().mockResolvedValue(null)
 
     const provider = {
       send: jest.fn().mockResolvedValue({ ok: true, retriable: false })
@@ -173,7 +178,7 @@ describe('queue consumer', () => {
       messageId: 104,
       payloadJson: JSON.stringify({
         userId: 7,
-        platform: 'fixture_a',
+        platform: 'huawei',
         title: 'hello',
         message: 'world'
       })
@@ -190,7 +195,7 @@ describe('queue consumer', () => {
     })
 
     expect(provider.send).not.toHaveBeenCalled()
-    expect(outbox.markDead).toHaveBeenCalledWith(5, 1, 'Invalid outbox payload')
+    expect(outbox.markDead).toHaveBeenCalledWith(5, 1, 'Invalid outbox payload', 'lease-1')
     expect(message.ack).toHaveBeenCalledTimes(1)
   })
 
@@ -220,7 +225,7 @@ describe('queue consumer 管线 retry 结果的延迟重发', () => {
     return makeOutboxStub({
       id: 9,
       messageId: 109,
-      payloadJson: JSON.stringify({ userId: 7, platform: 'fixture_a', messageId: 109, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' })
+      payloadJson: JSON.stringify({ userId: 7, platform: 'huawei', messageId: 109, appid: 42, date: '2026-02-28T11:59:00.000Z', title: 'hello', message: 'world' })
     })
   }
 

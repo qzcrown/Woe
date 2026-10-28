@@ -286,7 +286,7 @@ const handleOverlayClick = () => {
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-interactive);
   display: flex;
   align-items: center;
   justify-content: center;

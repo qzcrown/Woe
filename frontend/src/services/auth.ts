@@ -1,5 +1,4 @@
 import CryptoJS from 'crypto-js'
-import { useAuthStore } from '@/stores/auth'
 import type { Application } from '@/types'
 
 
@@ -63,6 +62,7 @@ const AUTH_STORAGE_PREFIX = 'woe_auth_'
 
 
 export const clientTokenStorageKey = (): string => `${AUTH_STORAGE_PREFIX}client_token`
+export const clientIdStorageKey = (): string => 'woe_client_id'
 
 
 export const appTokenStorageKey = (appId: number): string => `${AUTH_STORAGE_PREFIX}app_${appId}_token`
@@ -370,12 +370,12 @@ export class AuthenticationService {
 
 
   setClientId(id: number): void {
-    localStorage.setItem('woe_client_id', String(id))
+    localStorage.setItem(clientIdStorageKey(), String(id))
   }
 
   getClientId(): number | null {
     try {
-      const raw = localStorage.getItem('woe_client_id')
+      const raw = localStorage.getItem(clientIdStorageKey())
       const id = raw ? Number(raw) : NaN
       return Number.isSafeInteger(id) && id > 0 ? id : null
     } catch {
@@ -384,7 +384,7 @@ export class AuthenticationService {
   }
 
   clearClientId(): void {
-    localStorage.removeItem('woe_client_id')
+    localStorage.removeItem(clientIdStorageKey())
   }
 
 
@@ -721,44 +721,4 @@ export const authService = AuthenticationService.getInstance()
 export async function withElevationRetry<T>(action: () => Promise<T>): Promise<T> {
   const { useElevatedAction } = await import('@/composables/useElevatedAction')
   return useElevatedAction().withElevation(action)
-}
-
-
-
-
-
-export const requireAdmin = (): void => {
-  const authStore = useAuthStore()
-  if (!authStore.isAuthenticated) {
-    throw new Error('请先登录')
-  }
-  if (!authStore.user?.admin) {
-    throw new Error('需要管理员权限')
-  }
-}
-
-
-
-
-
-export const requireAuth = (): void => {
-  const authStore = useAuthStore()
-  if (!authStore.isAuthenticated) {
-    throw new Error('需要登录')
-  }
-}
-
-
-
-
-
-
-export const requireSelfOrAdmin = (userId: number): void => {
-  const authStore = useAuthStore()
-  if (!authStore.isAuthenticated) {
-    throw new Error('请先登录')
-  }
-  if (!authStore.user?.admin && authStore.user?.id !== userId) {
-    throw new Error('只能操作自己的数据或需要管理员权限')
-  }
 }

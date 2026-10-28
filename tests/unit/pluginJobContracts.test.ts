@@ -16,7 +16,10 @@ import { applications, messages, pluginConfigs, pluginLogs } from '../../src/mod
 import { createPluginHost } from '../../src/services/pluginJobs/pluginHost'
 import {
   createPluginTaskRegistry,
+  getPluginConfigParser,
   getPluginSecretFields,
+  getQuotaNamespaceModulePaths,
+  getQuotaNamespaces,
   hasPluginTask,
   registerPluginTask,
   resetPluginTaskRegistry,
@@ -33,7 +36,8 @@ import type {
   PluginJobsAccess,
   PluginTask,
   PluginTaskDefinition,
-  PluginTaskFailure
+  PluginTaskFailure,
+  PluginTaskResult
 } from '../../src/plugins/jobs/types'
 import { register as registerPlugin } from '../../src/plugins/registry'
 import { PluginManager } from '../../src/plugins/manager'
@@ -182,9 +186,17 @@ describe('PluginTaskDefinition 契约', () => {
     expect(createTask).toHaveBeenCalledTimes(1)
   })
 
-  test('PluginTaskResult 同时覆盖成功/失败与 quotaConsumed', async () => {
+  test('PluginTaskResult 同时覆盖成功/失败/skipped 与 quotaConsumed', async () => {
     const success: PluginTask = {
       run: async () => ({ ok: true, result: { tags: ['a'] }, quotaConsumed: false })
+    }
+    const skipped: PluginTask = {
+      run: async () => ({
+        ok: true,
+        skipped: { code: 'capacity-full' },
+        result: { tags: ['a'] },
+        quotaConsumed: false
+      })
     }
     const failure: PluginTask = {
       run: async () => ({
@@ -198,11 +210,26 @@ describe('PluginTaskDefinition 契约', () => {
       result: { tags: ['a'] },
       quotaConsumed: false
     })
+    await expect(skipped.run({ attempt: 1, timeoutMs: 100 })).resolves.toEqual({
+      ok: true,
+      skipped: { code: 'capacity-full' },
+      result: { tags: ['a'] },
+      quotaConsumed: false
+    })
     await expect(failure.run({ attempt: 2, timeoutMs: 100 })).resolves.toEqual({
       ok: false,
       failure: { errorCode: 'provider-rate-limit', retriable: true, retryAfterMs: 2000 },
       quotaConsumed: true
     })
+
+
+
+
+    const plainWithoutSkipped: PluginTaskResult = { ok: true, skipped: undefined }
+    // @ts-expect-error skipped 与 failure 互斥（跳过不是失败）
+    const failureWithSkipped: PluginTaskResult = { ok: false, failure: { errorCode: 'config', retriable: false }, skipped: { code: 'capacity-full' } }
+    void plainWithoutSkipped
+    void failureWithSkipped
   })
 
   test('PluginJobContext 持有 job 身份与 payload 快照', () => {
@@ -278,10 +305,11 @@ describe('PluginTaskRegistry（静态目录）', () => {
     resetPluginTaskRegistry()
   })
 
-  test('builtin 目录仅含公开 Webhooker 静态任务定义', () => {
-    expect(builtinPluginTasks.map((definition) => definition.modulePath)).toEqual([
-      'builtin/webhooker'
-    ])
+  test('builtin 静态任务目录与当前生成的 manifest 元数据完全对应', async () => {
+    const { builtinPluginTaskMetadata } = await import('../../src/plugins/builtin/pluginTasks')
+    expect(builtinPluginTasks.map((definition) => definition.modulePath)).toEqual(
+      builtinPluginTaskMetadata.map((definition) => definition.modulePath)
+    )
   })
 
   test('解析已注册定义；未知 modulePath 返回 null（无静默回退）', () => {
@@ -298,6 +326,47 @@ describe('PluginTaskRegistry（静态目录）', () => {
     expect(() => registerPluginTask(minimalDefinition('test/duplicate'))).toThrow(
       /already registered/
     )
+  })
+})
+
+describe('声明化 config parser 与配额 namespace 目录', () => {
+  test('quota namespace 与声明模块逐项来自当前生成目录', async () => {
+    const { moduleDescriptors } = await import('../../src/generated/plugins/catalog')
+    const expectedNamespaces = [...new Set(
+      moduleDescriptors
+        .map(descriptor => descriptor.task?.quotaNamespace)
+        .filter((value): value is string => value !== undefined)
+    )].sort()
+    expect(getQuotaNamespaces()).toEqual(expectedNamespaces)
+    for (const namespace of expectedNamespaces) {
+      expect(getQuotaNamespaceModulePaths(namespace)).toEqual(
+        moduleDescriptors
+          .filter(descriptor => descriptor.task?.quotaNamespace === namespace)
+          .map(descriptor => descriptor.modulePath)
+          .sort()
+      )
+    }
+    expect(getQuotaNamespaceModulePaths('test/undeclared-namespace')).toEqual([])
+  })
+
+  test('config parser 与当前 generated server 投影一致，未知模块返回 null', async () => {
+    const { moduleDescriptors } = await import('../../src/generated/plugins/catalog')
+    const { serverModules } = await import('../../src/generated/plugins/server')
+    const modules = serverModules as unknown as Readonly<Record<string, {
+      configParser?: (raw: unknown) => { ok: boolean }
+    }>>
+    for (const descriptor of moduleDescriptors) {
+      const expected = modules[descriptor.modulePath]?.configParser
+      const actual = getPluginConfigParser(descriptor.modulePath)
+      if (expected) {
+        expect(actual).not.toBeNull()
+        expect(actual!.parse).toBe(expected)
+        expect(actual!.errorDescription).toBe(descriptor.configErrorDescription ?? 'Invalid plugin config')
+      } else {
+        expect(actual).toBeNull()
+      }
+    }
+    expect(getPluginConfigParser('unknown/module')).toBeNull()
   })
 })
 
